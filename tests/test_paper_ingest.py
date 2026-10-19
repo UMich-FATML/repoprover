@@ -119,6 +119,40 @@ class TestFlatten:
         flattened, _ = flatten_tex(tmp_path / "main.tex")
         assert "\\input{main.bbl}" in flattened
 
+    def test_commented_directives_not_inlined(self, tmp_path: Path) -> None:
+        (tmp_path / "main.tex").write_text("% \\include{ch2}\n  %\\input{ch2}\n\\input{ch1}\n")
+        (tmp_path / "ch1.tex").write_text("CH1 body\n")
+        (tmp_path / "ch2.tex").write_text("CH2 body\n")
+        flattened, warnings = flatten_tex(tmp_path / "main.tex")
+        assert "CH1 body" in flattened
+        assert "CH2 body" not in flattened
+        assert "% \\include{ch2}\n  %\\input{ch2}\n" in flattened
+        assert warnings == []
+
+    def test_trailing_comment_directive_not_inlined(self, tmp_path: Path) -> None:
+        (tmp_path / "main.tex").write_text("\\input{a} % \\input{b}\n")
+        (tmp_path / "a.tex").write_text("A")
+        (tmp_path / "b.tex").write_text("B")
+        flattened, _ = flatten_tex(tmp_path / "main.tex")
+        assert flattened == "A % \\input{b}\n"
+
+    def test_escaped_percent_is_not_a_comment(self, tmp_path: Path) -> None:
+        (tmp_path / "main.tex").write_text("50\\% \\input{a}\n")
+        (tmp_path / "a.tex").write_text("A")
+        flattened, _ = flatten_tex(tmp_path / "main.tex")
+        assert flattened == "50\\% A\n"
+
+    def test_percent_after_line_break_is_a_comment(self, tmp_path: Path) -> None:
+        (tmp_path / "main.tex").write_text("x\\\\% \\input{a}\n")
+        (tmp_path / "a.tex").write_text("A")
+        flattened, _ = flatten_tex(tmp_path / "main.tex")
+        assert flattened == "x\\\\% \\input{a}\n"
+
+    def test_commented_missing_input_no_warning(self, tmp_path: Path) -> None:
+        (tmp_path / "main.tex").write_text("% \\input{missing}\n")
+        _, warnings = flatten_tex(tmp_path / "main.tex")
+        assert warnings == []
+
 
 class TestMainFile:
     def test_finds_documentclass_file(self, tmp_path: Path) -> None:

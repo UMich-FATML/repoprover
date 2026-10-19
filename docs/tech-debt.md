@@ -21,8 +21,9 @@ off would look like. Files over 1500 lines must be listed here (enforced by
 
 ## Ingestion limitations (accepted, documented in `docs/sources.md`)
 
-- **No `\input` inside verbatim/`\begin{comment}`** — flattening is textual;
-  an `\input` inside a verbatim block would be inlined. Rare in practice.
+- **No `\input` inside verbatim/`\begin{comment}`** — flattening skips `%`
+  line comments but is otherwise textual; an `\input` inside a verbatim or
+  `comment` block would be inlined. Rare in practice.
 - **No `\includeonly` support** — papers using `\includeonly` still get all
   `\include`d files inlined.
 - **Section split is line-based** — a `\section` command split across lines

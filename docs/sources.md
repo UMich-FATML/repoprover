@@ -87,6 +87,10 @@ tex/
 └── refs.bib       # bibliography (readable, read-only)
 ```
 
+`all.tex` inlines `\input`/`\include`/`\subfile` recursively. Directives
+after an unescaped `%` are left alone, so a commented-out
+`% \include{ch2}` stays disabled.
+
 Tex files (and `.bib`/`.bbl`) are **read-only** for agents: they are the
 ground truth reviewers check Lean against.
 

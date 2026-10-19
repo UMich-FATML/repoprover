@@ -60,6 +60,10 @@ _NEWTHEOREM_RE = re.compile(r"\\newtheorem\*?\s*\{([^}]+)\}")
 # \input{x} / \include{x} / \subfile{x} to inline while flattening
 _INPUT_RE = re.compile(r"\\(?:input|include|subfile)\s*\{([^}]+)\}")
 
+# A % starts a comment unless escaped: it must follow an even number of
+# backslashes (`\%` is a literal percent; `\\%` is a line break, then a comment).
+_COMMENT_START_RE = re.compile(r"(?<!\\)(?:\\\\)*%")
+
 _ARXIV_ID_RE = re.compile(r"^[a-z\-]+/\d{7}$|^\d{4}\.\d{4,5}(v\d+)?$")
 
 # Python >= 3.10.12 / 3.11.4 support the tar extraction filter; fall back to
@@ -288,7 +292,9 @@ def flatten_tex(main_file: Path) -> tuple[str, list[str]]:
 
     Returns (flattened_text, warnings). Missing files are left in place with a
     warning; \\bibliography and \\input of .bbl files are left for the reader.
-    Comment lines (starting with %) are kept verbatim - fidelity beats tidiness.
+    Comments (from an unescaped % to end of line) are kept verbatim -
+    fidelity beats tidiness - and directives inside them are not inlined, so a
+    chapter the author disabled with `% \\include{ch2}` stays disabled.
     """
     warnings: list[str] = []
     seen: set[Path] = set()
@@ -318,7 +324,12 @@ def flatten_tex(main_file: Path) -> tuple[str, list[str]]:
                 return match.group(0)
             return flatten(candidate)
 
-        return _INPUT_RE.sub(replace, text)
+        out: list[str] = []
+        for line in text.splitlines(keepends=True):
+            comment = _COMMENT_START_RE.search(line)
+            split = comment.end() - 1 if comment else len(line)
+            out.append(_INPUT_RE.sub(replace, line[:split]) + line[split:])
+        return "".join(out)
 
     return flatten(main_file), warnings
 
