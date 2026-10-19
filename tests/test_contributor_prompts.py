@@ -43,7 +43,7 @@ ALLOWED_PLACEHOLDERS = {
         "unit_noun_cap",
     },
     "MAINTAIN_MODE_PROMPT": {"issue_id"},
-    "PROGRESS_MODE_PROMPT": {"unit_noun", "unit_noun_plural"},
+    "PROGRESS_MODE_PROMPT": {"unit_noun"},
     "SCAN_MODE_PROMPT": set(),
     "TRIAGE_MODE_PROMPT": set(),
     "PAPER_SKETCH_GUIDANCE": set(),
