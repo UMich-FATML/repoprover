@@ -71,7 +71,7 @@ class ContributorTask:
     source_tex_path: str = ""  # Path to source tex file
 
     @classmethod
-    def sketch(cls, chapter_id: str, source_tex_path: str = "", lean_path: str = "") -> "ContributorTask":
+    def sketch(cls, chapter_id: str, source_tex_path: str = "", lean_path: str = "") -> ContributorTask:
         return cls(
             mode=ContributorMode.SKETCH,
             chapter_id=chapter_id,
@@ -82,7 +82,7 @@ class ContributorTask:
     @classmethod
     def prove(
         cls, chapter_id: str, theorem_name: str, lean_path: str = "", source_tex_path: str = ""
-    ) -> "ContributorTask":
+    ) -> ContributorTask:
         return cls(
             mode=ContributorMode.PROVE,
             chapter_id=chapter_id,
@@ -92,23 +92,23 @@ class ContributorTask:
         )
 
     @classmethod
-    def maintain(cls, issue_id: str | None = None, chapter_id: str | None = None) -> "ContributorTask":
+    def maintain(cls, issue_id: str | None = None, chapter_id: str | None = None) -> ContributorTask:
         return cls(mode=ContributorMode.MAINTAIN, issue_id=issue_id, chapter_id=chapter_id)
 
     @classmethod
-    def scan(cls) -> "ContributorTask":
+    def scan(cls) -> ContributorTask:
         return cls(mode=ContributorMode.SCAN)
 
     @classmethod
-    def triage(cls) -> "ContributorTask":
+    def triage(cls) -> ContributorTask:
         return cls(mode=ContributorMode.TRIAGE)
 
     @classmethod
-    def fix(cls) -> "ContributorTask":
+    def fix(cls) -> ContributorTask:
         return cls(mode=ContributorMode.FIX)
 
     @classmethod
-    def progress(cls) -> "ContributorTask":
+    def progress(cls) -> ContributorTask:
         return cls(mode=ContributorMode.PROGRESS)
 
 

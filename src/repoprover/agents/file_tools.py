@@ -14,6 +14,7 @@ Reviewers only get FILE_READ_TOOLS. Contributors get all FILE_TOOLS.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -462,8 +463,10 @@ class FileReadToolsMixin:
     Only provides: file_read, file_list, file_grep
     """
 
-    worktree_manager: "WorktreeManager | None"
+    worktree_manager: WorktreeManager | None
     repo_root: Path | None
+    # Provided by BaseAgent when this mixin is combined with it (see agents/base.py).
+    _register_tools_from_list: Callable[..., None]
 
     def register_tools(self, defs: dict, handlers: dict) -> None:
         """Register file read tools."""

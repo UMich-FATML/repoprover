@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import atexit
 import threading
+from collections.abc import Callable
 from logging import getLogger
 from pathlib import Path
 
@@ -162,6 +163,8 @@ class LeanToolsMixin:
     """
 
     repo_root: Path | None
+    # Provided by BaseAgent when this mixin is combined with it (see agents/base.py).
+    _register_tools_from_list: Callable[..., None]
 
     def register_tools(self, defs: dict, handlers: dict) -> None:
         """Register Lean tools."""
@@ -187,9 +190,7 @@ class LeanToolsMixin:
                 pool = get_global_pool()
 
             if pool is None:
-                return (
-                    "Error: No Lean workspace configured. Call configure_global_pool() at startup or set repo_root."
-                )
+                return "Error: No Lean workspace configured. Call configure_global_pool() at startup or set repo_root."
 
         result = pool.check_code(code)
         return result.format_for_agent()

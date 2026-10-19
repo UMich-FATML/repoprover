@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Callable
 from logging import getLogger
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -586,8 +587,10 @@ class GitWorktreeToolsMixin:
     Tools are registered automatically via register_tools.
     """
 
-    worktree_manager: "WorktreeManager | None"
-    repo_root: "Path | None"
+    worktree_manager: WorktreeManager | None
+    repo_root: Path | None
+    # Provided by BaseAgent when this mixin is combined with it (see agents/base.py).
+    _register_tools_from_list: Callable[..., None]
 
     def _get_repo_root(self) -> Path:
         """Get the repo root path for git operations."""
@@ -789,7 +792,7 @@ Resolve these files, stage with git_add(), then git_rebase_continue() again."""
         try:
             proc = subprocess.run(
                 ["git", "diff", "--check"],
-                cwd=self.worktree_manager.worktree_path,
+                cwd=self._get_repo_root(),
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -947,6 +950,8 @@ class MainAgentGitToolsMixin:
     """
 
     base_project: Path
+    # Provided by BaseAgent when this mixin is combined with it (see agents/base.py).
+    _register_tools_from_list: Callable[..., None]
 
     def register_tools(self, defs: dict, handlers: dict) -> None:
         """Register main agent git tools."""

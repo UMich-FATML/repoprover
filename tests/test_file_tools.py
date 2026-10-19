@@ -9,10 +9,11 @@ These tests verify:
 3. Edge cases: boundaries, empty ranges, same file operations
 """
 
-import pytest
-from pathlib import Path
-import tempfile
 import shutil
+import tempfile
+from pathlib import Path
+
+import pytest
 
 from repoprover.agents.file_tools import FileToolsMixin
 

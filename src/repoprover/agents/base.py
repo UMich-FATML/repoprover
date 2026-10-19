@@ -96,7 +96,7 @@ class ToolCall:
     duration_seconds: float = 0.0
 
     @classmethod
-    def from_record(cls, record: ToolCallRecord) -> "ToolCall":
+    def from_record(cls, record: ToolCallRecord) -> ToolCall:
         """Create from a ToolCallRecord."""
         return cls(
             name=record.name,
@@ -272,10 +272,10 @@ class BaseAgent(ABC):
     def __init__(
         self,
         config: AgentConfig | None = None,
-        worktree_manager: "WorktreeManager | None" = None,
+        worktree_manager: WorktreeManager | None = None,
         repo_root: Path | None = None,
         learnings: LearningsStore | None = None,
-        recorder: "AgentRecorder | None" = None,
+        recorder: AgentRecorder | None = None,
     ):
         self.config = config or AgentConfig()
         self.worktree_manager = worktree_manager
@@ -321,7 +321,7 @@ class BaseAgent(ABC):
         """Build the initial user prompt for this agent."""
         pass
 
-    def register_tools(self, defs: dict[str, dict], handlers: dict[str, Any]) -> None:
+    def register_tools(self, defs: dict[str, dict], handlers: dict[str, Any]) -> None:  # noqa: B027 - optional override point; base case of the super() chain is a no-op
         """Register tools from mixins. Override in mixins using super() pattern.
 
         Each mixin should call super().register_tools() then self._register_tools_from_list().
@@ -336,7 +336,7 @@ class BaseAgent(ABC):
 
             def _handle_my_tool(self, args): ...
         """
-        pass  # Base case - do nothing
+        pass
 
     def _register_tools_from_list(self, tools: list[dict], defs: dict[str, dict], handlers: dict[str, Any]) -> None:
         """Register tools using naming convention: handler is _handle_{tool_name}.

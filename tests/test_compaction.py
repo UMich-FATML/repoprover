@@ -23,14 +23,13 @@ import sys
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
+from repoprover.agents.base import AgentConfig, create_client
 from repoprover.agents.tools import (
     COMPACTION_THRESHOLD_TOKENS,
     MAX_CONTEXT_TOKENS,
     _estimate_tokens,
     run_tool_loop,
 )
-from repoprover.agents.base import create_client, AgentConfig
-
 
 # Generate deterministic secret parts for verification
 NUM_SECRET_PARTS = 10  # 10 secrets

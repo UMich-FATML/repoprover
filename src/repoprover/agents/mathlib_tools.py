@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from collections.abc import Callable
 from logging import getLogger
 from pathlib import Path
 from typing import Any
@@ -43,15 +44,12 @@ def _find_mathlib_path(workspace: str | None = None) -> Path:
     """Find the Mathlib installation under .lake/packages/mathlib."""
     candidates = []
     if workspace:
-        candidates.append(
-            Path(workspace) / ".lake" / "packages" / "mathlib"
-        )
+        candidates.append(Path(workspace) / ".lake" / "packages" / "mathlib")
     for p in candidates:
         if p.exists() and (p / "Mathlib").exists():
             return p
     raise RuntimeError(
-        f"Could not find Mathlib. Checked: {candidates}. "
-        "Pass the workspace parameter or ensure Mathlib is installed."
+        f"Could not find Mathlib. Checked: {candidates}. Pass the workspace parameter or ensure Mathlib is installed."
     )
 
 
@@ -81,15 +79,16 @@ def _run_ripgrep(
 
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=60,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     except subprocess.TimeoutExpired:
         logger.warning("ripgrep timed out for pattern: %s", pattern)
         return []
     except FileNotFoundError:
-        return _run_grep_fallback(
-            pattern, search_path, case_insensitive
-        )
+        return _run_grep_fallback(pattern, search_path, case_insensitive)
 
     matches: list[dict[str, Any]] = []
     for line in result.stdout.splitlines():
@@ -107,13 +106,15 @@ def _run_ripgrep(
             except ValueError:
                 rel_path = file_path
             for submatch in match_data.get("submatches", []):
-                matches.append({
-                    "file": rel_path,
-                    "line": match_data["line_number"],
-                    "column": submatch.get("start", 0),
-                    "match": submatch.get("match", {}).get("text", ""),
-                    "text": match_data["lines"]["text"].rstrip("\n"),
-                })
+                matches.append(
+                    {
+                        "file": rel_path,
+                        "line": match_data["line_number"],
+                        "column": submatch.get("start", 0),
+                        "match": submatch.get("match", {}).get("text", ""),
+                        "text": match_data["lines"]["text"].rstrip("\n"),
+                    }
+                )
     return matches
 
 
@@ -130,7 +131,10 @@ def _run_grep_fallback(
 
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=60,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
     except subprocess.TimeoutExpired:
         return []
@@ -143,13 +147,15 @@ def _run_grep_fallback(
                 rel_path = str(Path(parts[0]).relative_to(path))
             except ValueError:
                 rel_path = parts[0]
-            matches.append({
-                "file": rel_path,
-                "line": int(parts[1]),
-                "column": 0,
-                "match": pattern,
-                "text": parts[2].rstrip("\n"),
-            })
+            matches.append(
+                {
+                    "file": rel_path,
+                    "line": int(parts[1]),
+                    "column": 0,
+                    "match": pattern,
+                    "text": parts[2].rstrip("\n"),
+                }
+            )
     return matches
 
 
@@ -210,10 +216,20 @@ def mathlib_find_name(
     except RuntimeError as e:
         return {"error": str(e), "matches": [], "count": 0}
 
-    all_kinds = "|".join([
-        "theorem", "lemma", "def", "abbrev", "structure",
-        "class", "instance", "inductive", "axiom", "opaque",
-    ])
+    all_kinds = "|".join(
+        [
+            "theorem",
+            "lemma",
+            "def",
+            "abbrev",
+            "structure",
+            "class",
+            "instance",
+            "inductive",
+            "axiom",
+            "opaque",
+        ]
+    )
     if exact:
         pattern = rf"\b({all_kinds})\s+{re.escape(name)}\b"
     else:
@@ -313,8 +329,14 @@ Returns list of matches with file, line, and text.""",
                         "type": "string",
                         "description": "Declaration kind filter",
                         "enum": [
-                            "theorem", "lemma", "def", "abbrev",
-                            "structure", "class", "instance", "inductive",
+                            "theorem",
+                            "lemma",
+                            "def",
+                            "abbrev",
+                            "structure",
+                            "class",
+                            "instance",
+                            "inductive",
                         ],
                     },
                     "subdir": {
@@ -411,9 +433,7 @@ Returns file content.""",
     },
 ]
 
-MATHLIB_TOOL_NAMES = frozenset(
-    tool["function"]["name"] for tool in MATHLIB_TOOLS
-)
+MATHLIB_TOOL_NAMES = frozenset(tool["function"]["name"] for tool in MATHLIB_TOOLS)
 
 
 # =============================================================================
@@ -432,6 +452,8 @@ class MathlibToolsMixin:
     """
 
     repo_root: Path | None
+    # Provided by BaseAgent when this mixin is combined with it (see agents/base.py).
+    _register_tools_from_list: Callable[..., None]
 
     def register_tools(self, defs: dict, handlers: dict) -> None:
         """Register Mathlib tools (if config.mathlib_grep is True or unset)."""
@@ -469,9 +491,7 @@ class MathlibToolsMixin:
             lines.append(f"  {match['text']}")
             lines.append("")
 
-        logger.info(
-            f"{log_prefix} mathlib_grep: {result['count']} matches"
-        )
+        logger.info(f"{log_prefix} mathlib_grep: {result['count']} matches")
         return "\n".join(lines)
 
     def _handle_mathlib_find_name(self, args: dict) -> str:
@@ -499,9 +519,7 @@ class MathlibToolsMixin:
             lines.append(f"  {match['text']}")
             lines.append("")
 
-        logger.info(
-            f"{log_prefix} mathlib_find_name: {result['count']} matches"
-        )
+        logger.info(f"{log_prefix} mathlib_find_name: {result['count']} matches")
         return "\n".join(lines)
 
     def _handle_mathlib_read_file(self, args: dict) -> str:
@@ -524,17 +542,11 @@ class MathlibToolsMixin:
 
         lines = [f"**{file_path}** ({result['total_lines']} lines)"]
         if start_line or end_line:
-            lines[0] += (
-                f" [lines {start_line or 1}"
-                f"-{end_line or result['total_lines']}]"
-            )
+            lines[0] += f" [lines {start_line or 1}-{end_line or result['total_lines']}]"
         lines.append("")
         lines.append("```lean")
         lines.append(result["content"])
         lines.append("```")
 
-        logger.info(
-            f"{log_prefix} mathlib_read_file: "
-            f"{result['total_lines']} lines"
-        )
+        logger.info(f"{log_prefix} mathlib_read_file: {result['total_lines']} lines")
         return "\n".join(lines)

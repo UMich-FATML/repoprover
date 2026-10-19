@@ -144,9 +144,7 @@ class TacticInfo:
     proofState: int | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "sort_key", (self.pos.line, self.pos.column)
-        )
+        object.__setattr__(self, "sort_key", (self.pos.line, self.pos.column))
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> TacticInfo:
@@ -155,9 +153,7 @@ class TacticInfo:
             endPos=Pos.from_dict(d["endPos"]),
             goals=str(d.get("goals", "")),
             tactic=str(d.get("tactic", "")),
-            proofState=int(d["proofState"])
-            if d.get("proofState") is not None
-            else None,
+            proofState=int(d["proofState"]) if d.get("proofState") is not None else None,
         )
 
 
@@ -232,6 +228,7 @@ def _make_mem_limit_preexec(mem_limit_gb: int):
         return None
     try:
         import resource
+
         limit_bytes = mem_limit_gb * 1024 * 1024 * 1024
 
         def _set_limit() -> None:
@@ -245,9 +242,14 @@ def _make_mem_limit_preexec(mem_limit_gb: int):
 class _LeanRepl:
     """Lean REPL process manager."""
 
-    def __init__(self, cwd: str, request_timeout: float = 30.0,
-                 header_timeout: float = 180.0, max_retries: int = 1,
-                 mem_limit_gb: int = 24):
+    def __init__(
+        self,
+        cwd: str,
+        request_timeout: float = 30.0,
+        header_timeout: float = 180.0,
+        max_retries: int = 1,
+        mem_limit_gb: int = 24,
+    ):
         self.cwd = cwd
         self.request_timeout = request_timeout
         self.header_timeout = header_timeout
@@ -288,9 +290,9 @@ class _LeanRepl:
     def __exit__(self, *args: Any) -> None:
         self.close()
 
-    def run(self, code: str, env_id: int | None = None,
-            timeout: float | None = None,
-            all_tactics: bool = False) -> dict[str, Any]:
+    def run(
+        self, code: str, env_id: int | None = None, timeout: float | None = None, all_tactics: bool = False
+    ) -> dict[str, Any]:
         timeout = timeout or self.request_timeout
         run_from_env = env_id is not None
         max_retries = 0 if run_from_env else self.max_retries
@@ -308,15 +310,15 @@ class _LeanRepl:
                     return self._run(code, env_id, timeout, all_tactics)
                 except (TimeoutError, RuntimeError, json.JSONDecodeError) as e:
                     logger.error(
-                        "REPL error: %s (attempt %d/%d)", e, i + 1,
+                        "REPL error: %s (attempt %d/%d)",
+                        e,
+                        i + 1,
                         max_retries + 1,
                     )
                     self.restart()
             return {"repl_error": "Exceeded maximum retries"}
 
-    def _get_env_for_header(
-        self, header: str
-    ) -> tuple[int | None, dict[str, Any]]:
+    def _get_env_for_header(self, header: str) -> tuple[int | None, dict[str, Any]]:
         test_cmd = "example (n : Nat) : n = n := by rfl"
 
         if header in self._header_to_env_id:
@@ -330,19 +332,20 @@ class _LeanRepl:
         if "messages" in response:
             return None, {
                 "env": None,
-                "messages": [{
-                    "severity": "error",
-                    "pos": {"line": 0, "column": 0},
-                    "endPos": None,
-                    "data": f"Import failed. Header:\n{header}",
-                }],
+                "messages": [
+                    {
+                        "severity": "error",
+                        "pos": {"line": 0, "column": 0},
+                        "endPos": None,
+                        "data": f"Import failed. Header:\n{header}",
+                    }
+                ],
             }
         env_id = response["env"]
         self._header_to_env_id[header] = env_id
         return env_id, response
 
-    def _run(self, code: str, env_id: int | None, timeout: float,
-             all_tactics: bool = False) -> dict[str, Any]:
+    def _run(self, code: str, env_id: int | None, timeout: float, all_tactics: bool = False) -> dict[str, Any]:
         cmd_obj: dict[str, Any] = {"cmd": code}
         if env_id is not None:
             cmd_obj["env"] = env_id
@@ -353,31 +356,33 @@ class _LeanRepl:
         if self.process is None or self.process.poll() is not None:
             raise RuntimeError("REPL process not running")
 
-        self.process.stdin.write(command.encode("utf-8"))
-        self.process.stdin.flush()
+        stdin = self.process.stdin
+        stdout = self.process.stdout
+        stderr = self.process.stderr
+        if stdin is None or stdout is None or stderr is None:
+            raise RuntimeError("REPL process streams not available")
+
+        stdin.write(command.encode("utf-8"))
+        stdin.flush()
 
         response_buffer = ""
         end_time = time_module.monotonic() + timeout
 
         sel = selectors.DefaultSelector()
         try:
-            sel.register(self.process.stdout, selectors.EVENT_READ, "stdout")
-            sel.register(self.process.stderr, selectors.EVENT_READ, "stderr")
+            sel.register(stdout, selectors.EVENT_READ, "stdout")
+            sel.register(stderr, selectors.EVENT_READ, "stderr")
 
             while True:
                 remaining = end_time - time_module.monotonic()
                 if remaining <= 0:
-                    raise TimeoutError(
-                        f"REPL timed out after {timeout}s"
-                    )
+                    raise TimeoutError(f"REPL timed out after {timeout}s")
                 ready = sel.select(timeout=remaining)
                 if not ready:
-                    raise TimeoutError(
-                        f"REPL timed out after {timeout}s"
-                    )
+                    raise TimeoutError(f"REPL timed out after {timeout}s")
                 for key, _ in ready:
                     if key.data == "stdout":
-                        chunk = os.read(key.fileobj.fileno(), 4096)
+                        chunk = os.read(key.fd, 4096)
                         if not chunk:
                             raise RuntimeError("REPL process terminated")
                         response_buffer += chunk.decode("utf-8", errors="replace")
@@ -385,7 +390,7 @@ class _LeanRepl:
                             raw, _ = response_buffer.split("\n\n", 1)
                             return json.loads(raw.strip())
                     elif key.data == "stderr":
-                        err = os.read(key.fileobj.fileno(), 4096)
+                        err = os.read(key.fd, 4096)
                         if err:
                             logger.error(
                                 "REPL stderr: %s",
@@ -407,9 +412,7 @@ class _LeanReplPool:
         self.capacity = capacity
         self._cwd = cwd
         self._repl_kwargs = repl_kwargs
-        self._tasks: queue.Queue[
-            tuple[tuple[Any, ...], dict[str, Any], Future]
-        ] = queue.Queue()
+        self._tasks: queue.Queue[tuple[tuple[Any, ...], dict[str, Any], Future]] = queue.Queue()
         self._threads: list[threading.Thread] = []
         self._shutdown = False
 
@@ -513,10 +516,7 @@ class CheckResult:
             return "No sorries."
         lines = []
         for sorry in self.sorries:
-            lines.append(
-                f"- Line {sorry.get('line', '?')}: "
-                f"{sorry.get('goal', 'unknown goal')}"
-            )
+            lines.append(f"- Line {sorry.get('line', '?')}: {sorry.get('goal', 'unknown goal')}")
         return "\n".join(lines)
 
     def format_for_agent(self) -> str:
@@ -533,9 +533,7 @@ class CheckResult:
             parts.append(f"\n\n## Warnings ({len(self.warnings)})\n")
             parts.append("\n".join(f"- {w}" for w in self.warnings[:5]))
             if len(self.warnings) > 5:
-                parts.append(
-                    f"\n... and {len(self.warnings) - 5} more warnings"
-                )
+                parts.append(f"\n... and {len(self.warnings) - 5} more warnings")
         return "".join(parts)
 
 
@@ -603,28 +601,23 @@ class LeanChecker:
     def __exit__(self, *args: Any) -> None:
         self.close()
 
-    def _run_code(self, code: str, timeout: float | None = None,
-                  all_tactics: bool = False) -> dict[str, Any]:
+    def _run_code(self, code: str, timeout: float | None = None, all_tactics: bool = False) -> dict[str, Any]:
         timeout = timeout or self.config.timeout
         if self._pool is not None:
-            future = self._pool.submit(code, timeout=timeout,
-                                       all_tactics=all_tactics)
+            future = self._pool.submit(code, timeout=timeout, all_tactics=all_tactics)
             return future.result()
         else:
             if self._repl is None:
                 self.start()
             assert self._repl is not None
-            return self._repl.run(code, timeout=timeout,
-                                  all_tactics=all_tactics)
+            return self._repl.run(code, timeout=timeout, all_tactics=all_tactics)
 
-    def check_code(self, code: str, timeout: float | None = None,
-                   all_tactics: bool = False) -> CheckResult:
+    def check_code(self, code: str, timeout: float | None = None, all_tactics: bool = False) -> CheckResult:
         """Check Lean code and return structured result."""
         if self._repl is None and self._pool is None:
             self.start()
 
-        raw_response = self._run_code(code, timeout=timeout,
-                                       all_tactics=all_tactics)
+        raw_response = self._run_code(code, timeout=timeout, all_tactics=all_tactics)
 
         if raw_response.get("repl_error") is not None:
             return CheckResult(
@@ -648,23 +641,27 @@ class LeanChecker:
 
         sorries = []
         for sorry in cmd.sorries:
-            sorries.append({
-                "line": sorry.pos.line,
-                "column": sorry.pos.column,
-                "goal": sorry.goal,
-                "proof_state": sorry.proofState,
-            })
+            sorries.append(
+                {
+                    "line": sorry.pos.line,
+                    "column": sorry.pos.column,
+                    "goal": sorry.goal,
+                    "proof_state": sorry.proofState,
+                }
+            )
 
         tactics = []
         for tactic in cmd.tactics:
-            tactics.append({
-                "line": tactic.pos.line,
-                "column": tactic.pos.column,
-                "end_line": tactic.endPos.line,
-                "end_column": tactic.endPos.column,
-                "goals": tactic.goals,
-                "tactic": tactic.tactic,
-            })
+            tactics.append(
+                {
+                    "line": tactic.pos.line,
+                    "column": tactic.pos.column,
+                    "end_line": tactic.endPos.line,
+                    "end_column": tactic.endPos.column,
+                    "goals": tactic.goals,
+                    "tactic": tactic.tactic,
+                }
+            )
 
         success = outcome in (
             ReplOutcome.SUCCESS,
@@ -704,8 +701,7 @@ class LeanChecker:
             error_contexts=error_contexts,
         )
 
-    def check_code_with_context(self, code: str,
-                                 timeout: float | None = None) -> CheckResult:
+    def check_code_with_context(self, code: str, timeout: float | None = None) -> CheckResult:
         """Check code with allTactics to get goal states at error locations."""
         return self.check_code(code, timeout=timeout, all_tactics=True)
 

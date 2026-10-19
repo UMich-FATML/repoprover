@@ -581,11 +581,7 @@ class SafeShell:
         """Execute a validated command."""
         # Use longer timeout for lake commands (build, env, etc.)
         first_cmd = command.split()[0] if command.split() else ""
-        timeout = (
-            self.config.lake_timeout_seconds
-            if first_cmd == "lake"
-            else self.config.timeout_seconds
-        )
+        timeout = self.config.lake_timeout_seconds if first_cmd == "lake" else self.config.timeout_seconds
 
         # Build restricted environment
         env = {k: v for k, v in os.environ.items() if k in self.config.allowed_env_vars}

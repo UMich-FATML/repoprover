@@ -10,3 +10,9 @@ build/
 .env
 .mypy_cache/
 .pytest_cache/
+.pixi/
+.ruff_cache/
+
+# RepoProver run state (inside target Lean projects, never committed)
+.repoprover/
+runs/

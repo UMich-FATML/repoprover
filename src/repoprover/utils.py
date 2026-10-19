@@ -8,9 +8,10 @@ import logging
 import random
 import subprocess
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import TypeVar
 
 logger = logging.getLogger(__name__)
 

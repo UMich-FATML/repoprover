@@ -9,10 +9,12 @@ Agents can run commands like `lake build` through this interface.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from ..git_worktree import WorktreeManager
     from ..safe_shell import AgentRole, SafeShell
 
 SHELL_TOOLS = [
@@ -59,22 +61,25 @@ class ShellToolsMixin:
     Set self.agent_role to control permissions (default: WORKER).
     """
 
-    safe_shell: "SafeShell | None"
+    safe_shell: SafeShell | None
     repo_root: Path | None
-    agent_role: "AgentRole | None"
+    agent_role: AgentRole | None
+    worktree_manager: WorktreeManager | None
+    # Provided by BaseAgent when this mixin is combined with it (see agents/base.py).
+    _register_tools_from_list: Callable[..., None]
 
     def register_tools(self, defs: dict, handlers: dict) -> None:
         """Register shell tools."""
         super().register_tools(defs, handlers)  # type: ignore[misc]
         self._register_tools_from_list(SHELL_TOOLS, defs, handlers)
 
-    def _get_safe_shell(self) -> "SafeShell":
+    def _get_safe_shell(self) -> SafeShell:
         """Get or create the SafeShell instance."""
         if hasattr(self, "safe_shell") and self.safe_shell is not None:
             return self.safe_shell
 
         # Create on demand
-        from ..safe_shell import SafeShell, SafeShellConfig, AgentRole
+        from ..safe_shell import AgentRole, SafeShell, SafeShellConfig
 
         role = getattr(self, "agent_role", None) or AgentRole.WORKER
         root = self._get_shell_root()

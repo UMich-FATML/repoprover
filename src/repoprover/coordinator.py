@@ -147,7 +147,7 @@ class SimplePR:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "SimplePR":
+    def from_dict(cls, d: dict) -> SimplePR:
         d = dict(d)  # Copy to avoid modifying original
         d.pop("closes_issues", None)  # Remove legacy field if present
         d.pop("diff_files", None)  # Remove deprecated field
@@ -198,7 +198,7 @@ class RunState:
         path.write_text(json.dumps(data, indent=2))
 
     @classmethod
-    def load(cls, path: Path) -> "RunState":
+    def load(cls, path: Path) -> RunState:
         content = path.read_text().strip()
         if not content:
             raise ValueError(f"State file is empty: {path}")
@@ -279,7 +279,7 @@ class BookCoordinator:
 
         # Background maintain contributor tasks (work on assigned issues)
         # Maps task -> (agent_id, issue_id) to track which issue each agent is working on
-        self._maintain_tasks: dict[asyncio.Task, tuple[str, int]] = {}
+        self._maintain_tasks: dict[asyncio.Task, tuple[str, str]] = {}
 
         # Background scanner tasks (separate from agent tasks to avoid interference)
         # Maps task -> scanner_id
@@ -928,6 +928,9 @@ class BookCoordinator:
             except queue.Empty:
                 break
 
+            if result_dict is None:
+                break  # Shutdown signal (poison pill)
+
             result = DistributedResult.from_dict(result_dict)
             task_id = result.task_id
 
@@ -1218,7 +1221,7 @@ class BookCoordinator:
         print(f"[COORDINATOR] Sending shutdown to {num_workers} workers...", flush=True)
 
         # Send poison pill to each worker
-        for i in range(num_workers):
+        for _ in range(num_workers):
             self._zmq_server.put(None)
 
         # Give workers time to process the shutdown signal
@@ -3395,10 +3398,10 @@ class BookCoordinator:
                     "    git branch -m master main\n"
                     "See the README for setup instructions."
                 )
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Timeout checking for 'main' branch in {self.base_project}")
-        except FileNotFoundError:
-            raise RuntimeError("git not found. Please ensure git is installed and in PATH.")
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(f"Timeout checking for 'main' branch in {self.base_project}") from e
+        except FileNotFoundError as e:
+            raise RuntimeError("git not found. Please ensure git is installed and in PATH.") from e
 
     def _read_source_for_chapter(self, chapter_id: str) -> str:
         """Read the LaTeX source file for a chapter (for reviewer cross-checking)."""

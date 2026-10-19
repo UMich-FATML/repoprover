@@ -7,8 +7,6 @@ Tests response parsing, outcome classification, header splitting and
 CheckResult formatting without requiring a Lean installation.
 """
 
-import pytest
-
 from repoprover.lean_checker import (
     CheckResult,
     CommandResponse,
@@ -19,11 +17,9 @@ from repoprover.lean_checker import (
     ReplOutcome,
     SorryInfo,
     TacticInfo,
-    _parse_repl_response,
     _parse_repl_response_outcome,
     _split_imports_and_body,
 )
-
 
 # =============================================================================
 # Header splitting
@@ -81,86 +77,100 @@ class TestPos:
 
 class TestLeanMessage:
     def test_from_dict(self):
-        msg = LeanMessage.from_dict({
-            "severity": "error",
-            "pos": {"line": 3, "column": 0},
-            "endPos": {"line": 3, "column": 5},
-            "data": "unknown identifier 'foo'",
-        })
+        msg = LeanMessage.from_dict(
+            {
+                "severity": "error",
+                "pos": {"line": 3, "column": 0},
+                "endPos": {"line": 3, "column": 5},
+                "data": "unknown identifier 'foo'",
+            }
+        )
         assert msg.severity == MessageSeverity.ERROR
         assert msg.pos.line == 3
         assert msg.data == "unknown identifier 'foo'"
 
     def test_from_dict_no_endpos(self):
-        msg = LeanMessage.from_dict({
-            "severity": "warning",
-            "pos": {"line": 1, "column": 0},
-            "endPos": None,
-            "data": "unused variable",
-        })
+        msg = LeanMessage.from_dict(
+            {
+                "severity": "warning",
+                "pos": {"line": 1, "column": 0},
+                "endPos": None,
+                "data": "unused variable",
+            }
+        )
         assert msg.endPos is None
         assert msg.severity == MessageSeverity.WARNING
 
 
 class TestSorryInfo:
     def test_from_dict(self):
-        sorry = SorryInfo.from_dict({
-            "pos": {"line": 10, "column": 2},
-            "endPos": {"line": 10, "column": 7},
-            "goal": "⊢ True",
-            "proofState": 0,
-        })
+        sorry = SorryInfo.from_dict(
+            {
+                "pos": {"line": 10, "column": 2},
+                "endPos": {"line": 10, "column": 7},
+                "goal": "⊢ True",
+                "proofState": 0,
+            }
+        )
         assert sorry.pos.line == 10
         assert sorry.goal == "⊢ True"
 
 
 class TestTacticInfo:
     def test_from_dict(self):
-        tactic = TacticInfo.from_dict({
-            "pos": {"line": 5, "column": 2},
-            "endPos": {"line": 5, "column": 5},
-            "goals": "⊢ True",
-            "tactic": "trivial",
-        })
+        tactic = TacticInfo.from_dict(
+            {
+                "pos": {"line": 5, "column": 2},
+                "endPos": {"line": 5, "column": 5},
+                "goals": "⊢ True",
+                "tactic": "trivial",
+            }
+        )
         assert tactic.tactic == "trivial"
         assert tactic.goals == "⊢ True"
         assert tactic.proofState is None
 
     def test_from_dict_with_proof_state(self):
-        tactic = TacticInfo.from_dict({
-            "pos": {"line": 5, "column": 2},
-            "endPos": {"line": 5, "column": 5},
-            "goals": "",
-            "tactic": "rfl",
-            "proofState": 1,
-        })
+        tactic = TacticInfo.from_dict(
+            {
+                "pos": {"line": 5, "column": 2},
+                "endPos": {"line": 5, "column": 5},
+                "goals": "",
+                "tactic": "rfl",
+                "proofState": 1,
+            }
+        )
         assert tactic.proofState == 1
 
 
 class TestCommandResponse:
     def test_from_dict_success(self):
-        resp = CommandResponse.from_dict({
-            "env": 2,
-            "messages": [],
-            "sorries": [],
-        })
+        resp = CommandResponse.from_dict(
+            {
+                "env": 2,
+                "messages": [],
+                "sorries": [],
+            }
+        )
         assert resp.env == 2
         assert resp.messages == []
         assert resp.sorries == []
 
     def test_from_dict_with_messages(self):
-        resp = CommandResponse.from_dict({
-            "env": 1,
-            "messages": [
-                {
-                    "severity": "error",
-                    "pos": {"line": 1, "column": 0},
-                    "endPos": None,
-                    "data": "error msg",
-                }
-            ],
-            "sorries": [],
-        })
+        resp = CommandResponse.from_dict(
+            {
+                "env": 1,
+                "messages": [
+                    {
+                        "severity": "error",
+                        "pos": {"line": 1, "column": 0},
+                        "endPos": None,
+                        "data": "error msg",
+                    }
+                ],
+                "sorries": [],
+            }
+        )
         assert len(resp.messages) == 1
         assert resp.messages[0].severity == MessageSeverity.ERROR
 
@@ -181,51 +191,55 @@ class TestReplOutcome:
         assert outcome == ReplOutcome.SUCCESS
 
     def test_success_with_feedback(self):
-        outcome = _parse_repl_response_outcome({
-            "env": 1,
-            "messages": [
-                {
-                    "severity": "info",
-                    "pos": {"line": 1, "column": 0},
-                    "endPos": None,
-                    "data": "#check output",
-                }
-            ],
-        })
+        outcome = _parse_repl_response_outcome(
+            {
+                "env": 1,
+                "messages": [
+                    {
+                        "severity": "info",
+                        "pos": {"line": 1, "column": 0},
+                        "endPos": None,
+                        "data": "#check output",
+                    }
+                ],
+            }
+        )
         assert outcome == ReplOutcome.SUCCESS_WITH_FEEDBACK
 
     def test_error(self):
-        outcome = _parse_repl_response_outcome({
-            "env": 1,
-            "messages": [
-                {
-                    "severity": "error",
-                    "pos": {"line": 1, "column": 0},
-                    "endPos": None,
-                    "data": "type mismatch",
-                }
-            ],
-        })
+        outcome = _parse_repl_response_outcome(
+            {
+                "env": 1,
+                "messages": [
+                    {
+                        "severity": "error",
+                        "pos": {"line": 1, "column": 0},
+                        "endPos": None,
+                        "data": "type mismatch",
+                    }
+                ],
+            }
+        )
         assert outcome == ReplOutcome.ERROR
 
     def test_has_sorry(self):
-        outcome = _parse_repl_response_outcome({
-            "env": 1,
-            "sorries": [
-                {
-                    "pos": {"line": 3, "column": 2},
-                    "endPos": {"line": 3, "column": 7},
-                    "goal": "⊢ False",
-                    "proofState": 0,
-                }
-            ],
-        })
+        outcome = _parse_repl_response_outcome(
+            {
+                "env": 1,
+                "sorries": [
+                    {
+                        "pos": {"line": 3, "column": 2},
+                        "endPos": {"line": 3, "column": 7},
+                        "goal": "⊢ False",
+                        "proofState": 0,
+                    }
+                ],
+            }
+        )
         assert outcome == ReplOutcome.HAS_SORRY
 
     def test_repl_error(self):
-        outcome = _parse_repl_response_outcome({
-            "repl_error": "timeout"
-        })
+        outcome = _parse_repl_response_outcome({"repl_error": "timeout"})
         assert outcome == ReplOutcome.REPL_ERROR
 
 

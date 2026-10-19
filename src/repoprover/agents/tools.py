@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import json
 import time as time_module
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from logging import getLogger
 from time import time
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from openai import APIConnectionError, InternalServerError, RateLimitError
 
@@ -137,7 +138,7 @@ def _estimate_tool_results_tokens(messages: list[dict[str, Any]]) -> int:
 
 
 def _perform_compaction(
-    client: "OpenAI",
+    client: OpenAI,
     model: str,
     system_prompt: str,
     messages: list[dict[str, Any]],
@@ -292,7 +293,7 @@ class ToolLoopResult:
 
 
 def _call_with_retry(
-    client: "OpenAI",
+    client: OpenAI,
     model: str,
     max_tokens: int,
     temperature: float,
@@ -319,7 +320,7 @@ def _call_with_retry(
     if tools:
         kwargs["tools"] = tools
 
-    last_exception = None
+    last_exception: Exception | None = None
     for attempt in range(max_retries + 1):
         try:
             return client.chat.completions.create(**kwargs)
@@ -348,7 +349,10 @@ def _call_with_retry(
                 )
             time_module.sleep(delay)
 
-    raise last_exception  # Should never reach here
+    # Unreachable in practice: the loop either returns or raises on its last attempt.
+    if last_exception is not None:
+        raise last_exception
+    raise RuntimeError(f"{log_prefix}retries exhausted without an exception")
 
 
 # =============================================================================
@@ -357,7 +361,7 @@ def _call_with_retry(
 
 
 def run_tool_loop(
-    client: "OpenAI",
+    client: OpenAI,
     model: str,
     system_prompt: str,
     initial_messages: list[dict[str, Any]],
@@ -368,7 +372,7 @@ def run_tool_loop(
     max_tokens: int = 16384,
     temperature: float = 0.0,
     should_stop: Callable[[str], bool] | None = None,
-    recorder: "AgentRecorder | None" = None,
+    recorder: AgentRecorder | None = None,
     log_prefix: str = "",
     enable_compaction: bool = True,
     compaction_threshold: int = COMPACTION_THRESHOLD_TOKENS,
@@ -553,7 +557,7 @@ def run_tool_loop(
             recorded_tool_calls = None
             if tool_calls_in_response:
                 recorded_tool_calls = []
-                for tc_id, tc_name, tc_args_str in tool_calls_in_response:
+                for _tc_id, tc_name, tc_args_str in tool_calls_in_response:
                     try:
                         tc_args = json.loads(tc_args_str)
                     except json.JSONDecodeError:

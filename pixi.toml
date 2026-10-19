@@ -1,0 +1,36 @@
+[workspace]
+authors = ["RepoProver contributors"]
+channels = ["conda-forge"]
+description = "Multi-agent scaffold for large-scale formalization of math books and papers in Lean"
+name = "repoprover"
+platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+lint = { cmd = "ruff check src tests scripts && python scripts/lint.py", description = "Ruff + repo custom lint (docs links, manifests, prompt placeholders)" }
+format = { cmd = "ruff format src tests scripts", description = "Format Python code with ruff" }
+format-check = { cmd = "ruff format --check src tests scripts", description = "Check formatting without writing" }
+typecheck = { cmd = "pyright", description = "Type-check src/ with pyright (basic mode)" }
+test = { cmd = "pytest", description = "Run the test suite" }
+check = { depends-on = ["lint", "format-check", "typecheck", "test"], description = "Full gate: lint, format, types, tests" }
+install = { cmd = "bash scripts/install.sh", description = "Enable .githooks/ for this clone (run once per clone)" }
+toy-book = { cmd = "bash examples/toy_project/setup.sh /tmp/repoprover-toy-test", description = "Set up the toy book project for a smoke run" }
+toy-paper = { cmd = "bash examples/toy_paper/setup.sh /tmp/repoprover-toy-paper", description = "Set up the toy paper project for a smoke run" }
+
+[feature.analysis.pypi-dependencies]
+matplotlib = "*"
+numpy = "*"
+
+[environments]
+default = { solve-group = "default" }
+analysis = { features = ["analysis"], solve-group = "default" }
+
+[dependencies]
+python = ">=3.12,<3.13"
+pytest = ">=8"
+ruff = ">=0.8"
+pyright = ">=1.1.390"
+nodejs = ">=18"
+
+[pypi-dependencies]
+repoprover = { path = ".", editable = true }

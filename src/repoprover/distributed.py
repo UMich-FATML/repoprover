@@ -23,7 +23,7 @@ import multiprocessing
 import os
 import queue
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from logging import getLogger
 from pathlib import Path
@@ -33,6 +33,18 @@ if TYPE_CHECKING:
     from .coordinator import SimplePR  # noqa: F401
 
 logger = getLogger(__name__)
+
+
+def _recv_json(socket: Any) -> dict | None:
+    """Receive one JSON message from a ZMQ socket.
+
+    zmq's recv_json is typed as returning any JSON value, but the wire protocol
+    here only ever sends dicts (task/result messages) or None (shutdown signal).
+    """
+    msg = socket.recv_json()
+    if msg is None or isinstance(msg, dict):
+        return msg
+    raise TypeError(f"Expected a JSON object or null on the ZMQ wire, got {type(msg).__name__}")
 
 
 # =============================================================================
@@ -181,26 +193,30 @@ class ZmqQueueServer:
         if block:
             socks = dict(self.poller.poll(timeout=timeout_ms))
             if self.pull_socket in socks:
-                result = self.pull_socket.recv_json()
+                result = _recv_json(self.pull_socket)
                 self._results_received += 1
-                task_id = result.get("task_id", "unknown")
-                success = result.get("success", False)
-                logger.debug(
-                    f"[ZMQ-SERVER] Received result for {task_id} (success={success}) - total: {self._results_received}"
-                )
-                print(f"[ZMQ-SERVER] Received result for {task_id} (success={success})", flush=True)
+                if result is not None:
+                    task_id = result.get("task_id", "unknown")
+                    success = result.get("success", False)
+                    logger.debug(
+                        f"[ZMQ-SERVER] Received result for {task_id} (success={success})"
+                        f" - total: {self._results_received}"
+                    )
+                    print(f"[ZMQ-SERVER] Received result for {task_id} (success={success})", flush=True)
                 return result
             raise queue.Empty()
         else:
             socks = dict(self.poller.poll(timeout=0))
             if self.pull_socket in socks:
-                result = self.pull_socket.recv_json()
+                result = _recv_json(self.pull_socket)
                 self._results_received += 1
-                task_id = result.get("task_id", "unknown")
-                success = result.get("success", False)
-                logger.debug(
-                    f"[ZMQ-SERVER] Received result for {task_id} (success={success}) - total: {self._results_received}"
-                )
+                if result is not None:
+                    task_id = result.get("task_id", "unknown")
+                    success = result.get("success", False)
+                    logger.debug(
+                        f"[ZMQ-SERVER] Received result for {task_id} (success={success})"
+                        f" - total: {self._results_received}"
+                    )
                 return result
             raise queue.Empty()
 
@@ -252,7 +268,7 @@ class ZmqQueueClient:
 
     def get_task(self) -> dict | None:
         """Receive a task from coordinator (blocking)."""
-        task = self.pull_socket.recv_json()
+        task = _recv_json(self.pull_socket)
         self._tasks_received += 1
         if task is None:
             logger.info(f"[WORKER-{self.rank}] Received shutdown signal")
@@ -460,7 +476,6 @@ class DistributedWorker:
             max_concurrent: Maximum concurrent agent threads (I/O-bound LLM calls, cheap)
             lean_pool_size: Number of concurrent Lean REPL instances (memory-heavy)
         """
-        from concurrent.futures import ThreadPoolExecutor
 
         self.rank = get_global_rank()
         self.base_project = base_project
@@ -508,7 +523,7 @@ class DistributedWorker:
 
         tasks_completed = 0
         tasks_failed = 0
-        active_futures: dict[ThreadPoolExecutor, DistributedTask] = {}
+        active_futures: dict[Future[DistributedResult], DistributedTask] = {}
         shutdown = False
 
         # Results queue for completed tasks (thread-safe)
@@ -565,7 +580,7 @@ class DistributedWorker:
                 try:
                     # Set a short timeout so we can process results
                     self.queue.pull_socket.setsockopt(zmq.RCVTIMEO, 100)  # 100ms
-                    task_dict = self.queue.pull_socket.recv_json()
+                    task_dict = _recv_json(self.queue.pull_socket)
                     self.queue._tasks_received += 1
 
                     if task_dict is None:

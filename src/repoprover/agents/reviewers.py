@@ -72,7 +72,7 @@ class BaseReviewer(FileReadToolsMixin, MathlibToolsMixin, LeanToolsMixin, BaseAg
         self,
         reviewer_id: str,
         config: AgentConfig | None = None,
-        recorder: "AgentRecorder | None" = None,
+        recorder: AgentRecorder | None = None,
         worktree_path: Path | None = None,
     ):
         # Initialize BaseAgent with repo_root from worktree_path
@@ -824,7 +824,7 @@ def review_pr(
     files: dict[str, str],
     worktree_path: Path | None = None,
     config: AgentConfig | None = None,
-    session_recorder: "SessionRecorder | None" = None,
+    session_recorder: SessionRecorder | None = None,
 ) -> ReviewResult:
     """Coordinate review of a PR.
 

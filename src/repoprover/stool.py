@@ -18,7 +18,6 @@ Usage:
 
 import json
 import os
-import socket
 import subprocess
 from dataclasses import dataclass
 from getpass import getuser

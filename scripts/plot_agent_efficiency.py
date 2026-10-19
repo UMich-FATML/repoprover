@@ -32,7 +32,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 # ============================================================
 # Configuration (following gen_figures.py style)
 # ============================================================
@@ -471,7 +470,7 @@ def get_restart_runtime_hours(
     sorted_runs.sort(key=lambda r: r.start_time)
 
     restart_hours = []
-    for i, (run_start, run_end, offset_hours) in enumerate(runtime_mapping):
+    for i, (_run_start, _run_end, offset_hours) in enumerate(runtime_mapping):
         if i > 0:  # Skip first run
             restart_hours.append(offset_hours)
 
