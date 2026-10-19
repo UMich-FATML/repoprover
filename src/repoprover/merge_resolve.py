@@ -2,10 +2,12 @@
 
 Every sketch adds `import Book.Chapter` to the root module, so two sketches
 merged in a row always conflict there, and the coordinator used to bounce the
-second PR back to its agent for a full revision. A conflict hunk whose both
-sides contain only `import` lines (or blanks/comments) has exactly one sane
-resolution: keep every import from both sides. This module does that and
-nothing else; any other hunk leaves the file to the agent.
+second PR back to its agent for a full revision. A conflict hunk in the
+import header where at least one side holds only `import` lines (or
+blanks/comments) has one sane resolution: every import from both sides, then
+the other side's non-import lines (e.g. a module docstring added on `main`).
+This module does that and nothing else; any other hunk leaves the file to
+the agent.
 """
 
 from __future__ import annotations
@@ -57,16 +59,23 @@ def resolve_import_conflicts(text: str) -> str | None:
         if i == len(lines):
             return None  # unterminated hunk
         i += 1  # skip >>>>>>>
-        stripped = [ln.rstrip("\r\n") for ln in ours + theirs]
-        if not _is_import_only(stripped):
+        ours_pure = _is_import_only([ln.rstrip("\r\n") for ln in ours])
+        theirs_pure = _is_import_only([ln.rstrip("\r\n") for ln in theirs])
+        if not (ours_pure or theirs_pure):
             return None
+        # Lean needs every import before any other command, so the hunk must sit in the import header.
+        if not _is_import_only([ln.rstrip("\r\n") for ln in out]):
+            return None
+        rest_side = [] if ours_pure and theirs_pure else (theirs if ours_pure else ours)
+        imports = [ln for ln in ours + theirs if ln.lstrip().startswith("import ")]
+        rest = [ln for ln in rest_side if not ln.lstrip().startswith("import ")]
         seen: set[str] = set()
-        for ln in ours + theirs:
-            key = ln.strip()
-            if key and key in seen:
+        for ln in imports:
+            if ln.strip() in seen:
                 continue
-            seen.add(key)
+            seen.add(ln.strip())
             out.append(ln if ln.endswith("\n") else ln + "\n")
+        out.extend(ln if ln.endswith("\n") else ln + "\n" for ln in rest)
     return "".join(out) if found else None
 
 
