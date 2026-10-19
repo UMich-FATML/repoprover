@@ -17,8 +17,9 @@ it calls kimi-k3 directly through the OpenAI SDK. No external harness (dsh).
 
 1. `agents/base.py`: a `comet` provider and the new default. The base URL comes
    from `gateway_url` in the gateway state file (`REPOPROVER_COMET_GATEWAY_FILE`
-   overrides the path). No key is needed. Defaults are `reasoning_effort=high`,
-   `preserve_thinking`, 32768 max tokens and a 1800 s timeout.
+   overrides the path). No key is needed. Defaults are `reasoning_effort=max`,
+   `preserve_thinking`, 65536 max tokens, `top_p=1.0` with no temperature
+   sent, and a 1800 s timeout. Other providers keep `temperature=0.7`.
    `AgentConfig.extra_body()` holds the request extras.
 2. `agents/tools.py`: `extra_body` is threaded through the loop, the retry and
    compaction. `keep_reasoning` keeps `reasoning_content` in the history.

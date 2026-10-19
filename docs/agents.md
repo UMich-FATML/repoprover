@@ -374,12 +374,13 @@ Benefits:
 class AgentConfig:
     provider: str = "comet"  # comet (kimi-k3 via the gateway), anthropic, openai, google
     model: str = ""  # provider default: kimi-k3 for comet
-    temperature: float = 0.7
-    max_tokens: int = 8192  # comet: raised to 32768 when left at the default
+    temperature: float | None = None  # non-comet default: 0.7; None = not sent
+    top_p: float | None = None  # comet default: 1.0
+    max_tokens: int = 8192  # comet: raised to 65536 when left at the default
     max_iterations: int = 512
     api_key: str = ""  # comet needs none
     base_url: str = ""  # comet: gateway_url from the gateway state file
-    reasoning_effort: str | None = None  # comet default: "high"
+    reasoning_effort: str | None = None  # comet default: "max"
     preserve_thinking: bool | None = None  # comet default: True
     request_timeout: float = 1800.0
 ```

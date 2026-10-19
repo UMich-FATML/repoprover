@@ -46,8 +46,9 @@ COMET_PROVIDER = "comet"
 COMET_GATEWAY_FILE_ENV = "REPOPROVER_COMET_GATEWAY_FILE"
 COMET_GATEWAY_FILE_DEFAULT = "~/shrd/sglang-serve/state/comet-gateway.json"
 COMET_API_KEY_ENV = "COMET_API_KEY"  # optional: the gateway is unauthenticated
-COMET_DEFAULT_MAX_TOKENS = 32768
-COMET_DEFAULT_REASONING_EFFORT = "high"
+COMET_DEFAULT_MAX_TOKENS = 65536
+COMET_DEFAULT_REASONING_EFFORT = "max"
+COMET_DEFAULT_TOP_P = 1.0  # comet samples with top_p only; temperature is not sent
 
 PROVIDER_BASE_URLS = {
     "anthropic": "https://api.anthropic.com/v1/",
@@ -70,6 +71,7 @@ PROVIDER_DEFAULT_MODELS = {
 
 PROVIDERS = (COMET_PROVIDER, "anthropic", "openai", "google")
 DEFAULT_MAX_TOKENS = 8192
+DEFAULT_TEMPERATURE = 0.7  # non-comet providers
 DEFAULT_REQUEST_TIMEOUT = 1800.0  # seconds; long reasoning turns exceed the SDK's 600s
 
 
@@ -108,14 +110,17 @@ class AgentConfig:
 
     provider: str = COMET_PROVIDER  # comet (default, kimi-k3), anthropic, openai, google
     model: str = ""  # If empty, uses provider default
-    temperature: float = 0.7
-    max_tokens: int = DEFAULT_MAX_TOKENS  # comet: raised to 32768 when left at the default
+    # Sampling: None = not sent. Defaults: comet top_p=1.0 (no temperature);
+    # other providers temperature=0.7.
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int = DEFAULT_MAX_TOKENS  # comet: raised to 65536 when left at the default
     max_iterations: int = DEFAULT_MAX_ITERATIONS
     api_key: str = ""  # If empty, uses env var
     base_url: str = ""  # If empty, uses provider default (comet: gateway state file)
     # Mathlib grep tools configuration
     mathlib_grep: bool = True  # Enable mathlib_grep tools for searching Mathlib source
-    # Reasoning models (sent as request extras; comet defaults: "high", True)
+    # Reasoning models (sent as request extras; comet defaults: "max", True)
     reasoning_effort: str | None = None  # low | high | max
     preserve_thinking: bool | None = None  # keep reasoning_content in history
     request_timeout: float = DEFAULT_REQUEST_TIMEOUT
@@ -131,6 +136,10 @@ class AgentConfig:
                 self.reasoning_effort = COMET_DEFAULT_REASONING_EFFORT
             if self.max_tokens == DEFAULT_MAX_TOKENS:
                 self.max_tokens = COMET_DEFAULT_MAX_TOKENS
+            if self.top_p is None and self.temperature is None:
+                self.top_p = COMET_DEFAULT_TOP_P
+        elif self.temperature is None and self.top_p is None:
+            self.temperature = DEFAULT_TEMPERATURE
         if self.preserve_thinking is None:
             self.preserve_thinking = is_comet
 
@@ -260,6 +269,7 @@ def call_llm_simple(
         tool_handler=lambda name, args: "Error: No tools available",
         max_tokens=config.max_tokens,
         temperature=config.temperature,
+        top_p=config.top_p,
         extra_body=config.extra_body(),
         keep_reasoning=bool(config.preserve_thinking),
     )
@@ -508,6 +518,7 @@ class BaseAgent(ABC):
                 max_iterations=self.config.max_iterations,
                 max_tokens=self.config.max_tokens,
                 temperature=self.config.temperature,
+                top_p=self.config.top_p,
                 should_stop=self.should_stop,
                 recorder=self.recorder,
                 log_prefix=self.log_prefix,

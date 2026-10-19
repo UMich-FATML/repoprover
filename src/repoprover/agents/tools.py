@@ -144,9 +144,10 @@ def _perform_compaction(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None,
     max_tokens: int,
-    temperature: float,
+    temperature: float | None,
     log_prefix: str,
     current_context_tokens: int,
+    top_p: float | None = None,
     extra_body: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int, str]:
     """Perform context compaction by adding compaction prompt to the existing conversation.
@@ -191,6 +192,7 @@ def _perform_compaction(
         model=model,
         max_tokens=max_tokens,
         temperature=temperature,
+        top_p=top_p,
         messages=full_messages,
         tools=tools,
         log_prefix=f"{log_prefix}[compaction]",
@@ -298,10 +300,11 @@ def _call_with_retry(
     client: OpenAI,
     model: str,
     max_tokens: int,
-    temperature: float,
+    temperature: float | None,
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None,
     log_prefix: str = "",
+    top_p: float | None = None,
     extra_body: dict[str, Any] | None = None,
     max_retries: int = 100,
     base_delay: float = 1.0,
@@ -317,9 +320,13 @@ def _call_with_retry(
     kwargs: dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,
-        "temperature": temperature,
         "messages": messages,
     }
+    # Sampling params are sent only when set, so the server default applies otherwise.
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    if top_p is not None:
+        kwargs["top_p"] = top_p
     if tools:
         kwargs["tools"] = tools
     if extra_body is not None:
@@ -376,7 +383,8 @@ def run_tool_loop(
     *,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     max_tokens: int = 16384,
-    temperature: float = 0.0,
+    temperature: float | None = 0.0,
+    top_p: float | None = None,
     should_stop: Callable[[str], bool] | None = None,
     recorder: AgentRecorder | None = None,
     log_prefix: str = "",
@@ -410,7 +418,8 @@ def run_tool_loop(
         tool_handler: Function to handle tool calls: (name, args) -> result
         max_iterations: Maximum number of tool call iterations
         max_tokens: Max tokens for LLM response
-        temperature: Temperature for LLM
+        temperature: Temperature for LLM (None = not sent)
+        top_p: Nucleus sampling top_p (None = not sent)
         should_stop: Optional custom stop condition: (text) -> bool
         recorder: Optional recorder for logging
         log_prefix: Prefix for log messages
@@ -473,6 +482,7 @@ def run_tool_loop(
                     tools=tools,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    top_p=top_p,
                     log_prefix=log_prefix,
                     current_context_tokens=estimated_next_input,
                     extra_body=extra_body,
@@ -525,6 +535,7 @@ def run_tool_loop(
             model=model,
             max_tokens=max_tokens,
             temperature=temperature,
+            top_p=top_p,
             messages=full_messages,
             tools=tools,
             log_prefix=log_prefix,

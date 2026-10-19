@@ -79,7 +79,7 @@ def agent_config_from_args(args: argparse.Namespace) -> AgentConfig:
     """Build the LLM AgentConfig from `run` flags; unset flags keep the defaults."""
     overrides = {
         name: getattr(args, name, None)
-        for name in ("model", "base_url", "reasoning_effort", "max_tokens", "temperature")
+        for name in ("model", "base_url", "reasoning_effort", "max_tokens", "temperature", "top_p")
     }
     return AgentConfig(
         provider=getattr(args, "provider", None) or "",
@@ -562,10 +562,15 @@ def main() -> int:
         "--reasoning-effort",
         dest="reasoning_effort",
         choices=["low", "high", "max"],
-        help="Reasoning effort sent to comet models (default: high)",
+        help="Reasoning effort sent to comet models (default: max)",
     )
     llm.add_argument("--max-tokens", dest="max_tokens", type=int, help="Max completion tokens per call")
-    llm.add_argument("--temperature", type=float, help="Sampling temperature (default: 0.7)")
+    llm.add_argument(
+        "--temperature",
+        type=float,
+        help="Sampling temperature (default: not sent for comet, 0.7 for other providers)",
+    )
+    llm.add_argument("--top-p", dest="top_p", type=float, help="Nucleus sampling top_p (default: 1.0 for comet)")
     llm.add_argument(
         "--skip-llm-check",
         action="store_true",

@@ -52,11 +52,12 @@ def test_default_config_is_kimi_on_comet():
     config = AgentConfig()
     assert config.provider == "comet"
     assert config.model == "kimi-k3"
-    assert config.reasoning_effort == "high"
+    assert config.reasoning_effort == "max"
+    assert (config.top_p, config.temperature) == (1.0, None)
     assert config.max_tokens == COMET_DEFAULT_MAX_TOKENS
     assert config.preserve_thinking is True
     assert config.extra_body() == {
-        "reasoning_effort": "high",
+        "reasoning_effort": "max",
         "chat_template_kwargs": {"preserve_thinking": True},
     }
 
@@ -69,6 +70,7 @@ def test_other_providers_keep_old_defaults():
     config = AgentConfig(provider="openai")
     assert config.model == "gpt-4o"
     assert config.max_tokens == 8192
+    assert (config.temperature, config.top_p) == (0.7, None)
     assert config.preserve_thinking is False
     assert config.extra_body() is None
 
@@ -163,8 +165,8 @@ def _parse_run(*argv: str):
 
 def test_cli_defaults_build_comet_config():
     config = agent_config_from_args(_parse_run())
-    assert (config.provider, config.model, config.reasoning_effort) == ("comet", "kimi-k3", "high")
-    assert config.temperature == 0.7
+    assert (config.provider, config.model, config.reasoning_effort) == ("comet", "kimi-k3", "max")
+    assert (config.max_tokens, config.top_p, config.temperature) == (65536, 1.0, None)
 
 
 def test_cli_overrides():
@@ -180,3 +182,8 @@ def test_cli_overrides():
     assert (config.provider, config.model, config.base_url) == ("openai", "m", "http://h/v1")
     assert (config.max_tokens, config.temperature) == (100, 0.1)
     assert args.skip_llm_check is True
+
+
+def test_tool_loop_sends_only_set_sampling_params():
+    completions, _ = _run(temperature=None, top_p=1.0)
+    assert all(call["top_p"] == 1.0 and "temperature" not in call for call in completions.calls)
