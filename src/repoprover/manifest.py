@@ -254,6 +254,32 @@ def find_manifest(base_project: Path) -> Path | None:
     return None
 
 
+MANIFEST_FILENAMES = ("manifest.json", "repoprover.json", ".repoprover/manifest.json")
+SOURCE_EXTENSIONS = (".tex", ".bib", ".bbl")
+
+
+def read_only_inputs(changed_paths: list[str]) -> list[str]:
+    """The paths in a PR's change list that agents must never touch.
+
+    The manifest defines the units and targets the coordinator tracks (an id
+    renamed mid-run becomes a second, duplicate unit), and the source tex is
+    the ground truth reviewers compare against. Both are fixed for the run.
+    """
+    return [p for p in changed_paths if p in MANIFEST_FILENAMES or p.lower().endswith(SOURCE_EXTENSIONS)]
+
+
+def read_only_feedback(paths: list[str]) -> str:
+    """Revision feedback for a PR that touched read-only inputs: what, why, and how to undo it."""
+    return (
+        f"PR modifies read-only inputs: {', '.join(paths)}. manifest.json and the source tex are fixed "
+        "for the whole run: a renamed unit id becomes a duplicate unit, and edited sources change the "
+        "reviewers' ground truth. Undo exactly those changes and keep the rest of your work: "
+        f"`git_checkout_file('main', {paths!r})` restores edited or deleted files; delete any of these "
+        "paths that do not exist on main (renamed/added files). If an input is genuinely wrong (a target id "
+        "that matches no label, a broken title), describe it in an issue instead."
+    )
+
+
 def render_contents_md(manifest: Manifest) -> str:
     """Render the initial CONTENTS.md for a project.
 

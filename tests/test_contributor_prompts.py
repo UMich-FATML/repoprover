@@ -156,6 +156,12 @@ class TestSystemPrompt:
         assert "Unit files belong to their sketcher" in prompt
         assert "do not create, scaffold, stub or import a missing unit file" in prompt
 
+    def test_prompt_marks_inputs_read_only_and_explains_target_ids(self) -> None:
+        # Agents renamed manifest ids and tex files mid-run, creating duplicate units.
+        prompt = make_agent(ContributorTask.maintain(issue_id="abcd1234")).get_system_prompt()
+        assert "Read-only inputs" in prompt
+        assert "target `thm.main` is `\\label{thm:main}`" in prompt
+
     def test_unknown_source_kind_falls_back_to_book(self) -> None:
         agent = make_agent(ContributorTask.scan(source_kind="pamphlet"))
         prompt = agent.get_system_prompt()

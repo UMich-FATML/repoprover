@@ -19,6 +19,8 @@ from repoprover.manifest import (
     find_manifest,
     initial_sketch_issues,
     load_manifest,
+    read_only_feedback,
+    read_only_inputs,
     render_contents_md,
 )
 
@@ -208,3 +210,14 @@ class TestFindManifest:
 
     def test_returns_none_when_absent(self, tmp_path: Path) -> None:
         assert find_manifest(tmp_path) is None
+
+
+def test_read_only_inputs_flags_manifest_and_sources():
+    changed = ["manifest.json", "tex/09-x.tex", "tex/refs.bib", "Book/Ch.lean", "CONTENTS.md", "issues/a.yaml"]
+    assert read_only_inputs(changed) == ["manifest.json", "tex/09-x.tex", "tex/refs.bib"]
+    assert read_only_inputs(["Book/Ch.lean"]) == []
+
+
+def test_read_only_feedback_names_paths_and_fix():
+    msg = read_only_feedback(["manifest.json"])
+    assert "manifest.json" in msg and "git_checkout_file('main', ['manifest.json'])" in msg

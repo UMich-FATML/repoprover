@@ -57,6 +57,8 @@ from .manifest import (
     SourceKind,
     find_manifest,
     initial_sketch_issues,
+    read_only_feedback,
+    read_only_inputs,
     render_contents_md,
 )
 from .manifest import (
@@ -2655,6 +2657,20 @@ class Coordinator:
                     combined_verdict=ReviewVerdict.REQUEST_CHANGES,
                 )
 
+            # The manifest and source tex are fixed for the run; bounce PRs that touch them
+            # before spending a build and two LLM reviews.
+            touched = self._read_only_inputs_touched(pr.branch_name)
+            if touched:
+                logger.info(f"PR {pr.pr_id} modifies read-only inputs ({', '.join(touched)}), skipping review")
+                return pr.pr_id, ReviewResult(
+                    build_passed=False,
+                    build_error=read_only_feedback(touched),
+                    build_output=None,
+                    math_review=None,
+                    engineering_review=None,
+                    combined_verdict=ReviewVerdict.REQUEST_CHANGES,
+                )
+
             _, diff = self._get_branch_diff(pr.branch_name)
             files = self._get_branch_files(pr.branch_name)
 
@@ -3409,6 +3425,19 @@ class Coordinator:
             return full_path.read_text(encoding="utf-8")
         except Exception:
             return ""
+
+    def _read_only_inputs_touched(self, branch_name: str) -> list[str]:
+        """Manifest/source paths the branch adds, deletes, renames or edits relative to main."""
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "--no-renames", f"main...{branch_name}"],
+            cwd=self.base_project,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return []
+        return read_only_inputs([p for p in result.stdout.splitlines() if p])
 
     def _get_branch_files(self, branch_name: str) -> dict[str, str]:
         """Get files changed by the branch since it diverged from main."""

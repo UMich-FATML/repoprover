@@ -173,6 +173,16 @@ Unless you are that unit's sketcher, do not create, scaffold, stub or import a m
 and do not open issues asking for one: a skeleton on `main` makes the sketcher's PR conflict and
 throws its work back for revision. Shared infrastructure goes in other files (e.g. `Basic.lean`).
 
+### Read-only inputs: `manifest.json` and the source tex
+
+`manifest.json` and every `.tex`/`.bib` file are fixed for the whole run. Never edit, rename, add or
+delete them (not even with `bash`/`git mv`): a PR that touches them is rejected before review. Unit
+ids, file names and titles are stable keys, even when they look odd; do not "fix" them.
+How targets map to the tex: a target id is the result's `\\label` with `:` replaced by `.` and
+whitespace collapsed, so target `thm.main` is `\\label{{thm:main}}` in the tex. To find it, grep the
+tex for the label with `.` turned back into `:`. If an input really is wrong (a target matching no
+label), describe it in an issue instead.
+
 ## Tools Available
 
 ### File Tools
