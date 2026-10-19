@@ -1,6 +1,10 @@
-# RepoProver
+# Project setup
 
-Multi-file autoformalization system for Lean 4. Takes mathematical textbooks (LaTeX) and produces verified Lean 4 formalizations.
+Multi-file autoformalization system for Lean 4. Takes mathematical sources —
+textbooks or research papers (LaTeX) — and produces verified Lean 4
+formalizations. Papers can be onboarded automatically with
+`repoprover init-paper` (see [sources.md](sources.md)); this page describes
+what the resulting project needs before a run.
 
 ## Base Project Setup (before first run)
 
@@ -47,12 +51,17 @@ This ensures `.lake/packages/` and `.lake/build/` are fully populated. The workt
 
 **Important:** If your environment rewrites git URLs (e.g., a global `insteadOf` rule mapping `https://github.com/` to `ssh://git@github.com/`), Lake may detect a URL mismatch and try to re-clone packages. Make sure the URLs in `.lake/packages/*/` match what `lake-manifest.json` expects.
 
-### 5. `manifest.json` with chapter definitions
+### 5. `manifest.json` with unit definitions
 
-The manifest maps chapter IDs to source and target paths:
+The manifest maps unit ids to source and target paths. Books use the
+`chapters` key, papers use `sections`; either key is accepted, and `kind`
+records which (`"book"` / `"paper"`). The full schema, including the
+`target_theorems` label convention, is in [sources.md](sources.md).
 
 ```json
 {
+  "kind": "book",
+  "title": "My Book",
   "chapters": [
     {
       "id": "ch1",
@@ -94,11 +103,11 @@ The `run` command automatically:
 
 ## How It Works
 
-RepoProver uses a simple loop with three types of agents:
+RepoProver uses a simple loop with these agents:
 
 1. **Sketchers** - Translate LaTeX to Lean with `sorry` placeholders
 2. **Provers** - Fill in the `sorry` proofs
-3. **Investigators** - Work through open issues from ISSUES.md
+3. **Maintainers** - Work through open issues in `issues/`
 
 Every change goes through automated review before merging to main.
 
@@ -168,8 +177,14 @@ my-lean-project/
 
 ## Manifest Format
 
+The manifest schema (including the paper `sections` key, `kind`, and the
+label → target convention) is defined once in [sources.md](sources.md);
+`load_manifest` in `src/repoprover/manifest.py` is its implementation.
+
 ```json
 {
+  "kind": "book",
+  "title": "My Book",
   "chapters": [
     {
       "id": "ch1",
@@ -185,15 +200,6 @@ my-lean-project/
   ]
 }
 ```
-
-### Manifest Fields
-
-| Field | Required | Description |
-|-------|----------|-------------|
-| `id` | Yes | Unique chapter identifier |
-| `title` | No | Human-readable chapter title |
-| `source_path` | Yes | Path to LaTeX source file |
-| `target_theorems` | No | List of theorem names that define "success" for this chapter. Issues are auto-created for each. |
 
 ## CONTENTS.md
 
@@ -226,10 +232,13 @@ module hierarchy, shared utilities, naming conventions, etc.)*
 repoprover run <path> [--clean]
 
 # Show project status
-repoprover status <path> [-c/--chapters] [--prs]
+repoprover status <path> [-c/--chapters/--units] [--prs]
 
 # Export state as JSON
 repoprover export <path> [-o output.json]
+
+# Turn a paper into a project (arXiv id or local tex)
+repoprover init-paper <path> (--arxiv <id> | --source <file|dir|tar.gz>)
 ```
 
 **Notes:**
@@ -265,7 +274,7 @@ Both must approve. If either requests changes, the agent revises and resubmits.
 
 ## Configuration
 
-The `.repoprover/state.json` file is created automatically on first run. Key settings in `BookCoordinatorConfig`:
+The `.repoprover/state.json` file is created automatically on first run. Key settings in `CoordinatorConfig`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|

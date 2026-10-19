@@ -7,13 +7,21 @@
 
 Code for [Automatic Textbook Formalization (Gloeckle, Rammal, Arnal, Munos, Cabannes, Synnaeve, Hayat, 2026)](auto_textbook_formalization.pdf).
 
-RepoProver is a multi-agent scaffold for large-scale formalization of mathematics textbooks in Lean. It orchestrates multiple LLM agents that collaborate on a shared git repository with the Lean project: sketcher agents translate definitions and theorem statements, prover agents fill in proofs, and reviewer agents enforce quality via pull request reviews. Coordination happens through a lightweight file-system-based issue tracker and a merge queue that ensures the main branch always builds.
+RepoProver is a multi-agent scaffold for large-scale formalization of mathematical texts — textbooks and research papers — in Lean. It orchestrates multiple LLM agents that collaborate on a shared git repository with the Lean project: sketcher agents translate definitions and theorem statements, prover agents fill in proofs, and reviewer agents enforce quality via pull request reviews. Coordination happens through a lightweight file-system-based issue tracker and a merge queue that ensures the main branch always builds.
 
 This code produced an [automatic formalization](https://github.com/facebookresearch/algebraic-combinatorics) of the graduate textbook [Algebraic Combinatorics](https://arxiv.org/abs/2506.00738) by Darij Grinberg.
 
+Papers get the same pipeline: `repoprover init-paper` downloads an arXiv e-print (or takes local tex), flattens `\input`s, splits by `\section`, extracts labeled results as targets, and writes the manifest and project skeleton. See [`docs/sources.md`](docs/sources.md).
+
 ## Setup
 
-Requires Python 3.10+. Install in editable mode:
+Requires Python 3.10+. With [pixi](https://pixi.sh):
+
+```bash
+pixi run check   # lint + format-check + typecheck + test
+```
+
+or install in editable mode with pip:
 
 ```bash
 pip install -e .
@@ -21,7 +29,21 @@ pip install -e .
 
 ## Preparing a formalization project
 
-RepoProver operates on a Lean project repository. Before running, you need to set up:
+RepoProver operates on a Lean project repository. For a **paper**, most of
+this is automated:
+
+```bash
+repoprover init-paper /path/to/project --arxiv 2506.00738
+# or: --source paper.tex (a main tex file, a directory, or a .tar.gz e-print)
+```
+
+This writes `manifest.json`, `CONTENTS.md`, `tex/` (split by `\section`) and
+`issues/`, and prints the remaining `lake`/`git` steps. Papers without LaTeX
+source (PDF-only arXiv submissions) are refused, not OCR'd — see
+[`docs/sources.md`](docs/sources.md#pdf-only-papers).
+
+For a **book** (or a paper you want to lay out by hand), set up the project
+yourself:
 
 1. **Create a Lean project with Mathlib** and build it:
    ```bash
@@ -54,13 +76,13 @@ RepoProver operates on a Lean project repository. Before running, you need to se
 
 3. **Create a `CONTENTS.md`** at the project root documenting the structure of tex sources and corresponding Lean files. The coordinator generates an initial version from the manifest, and agents update it as the Lean codebase evolves. It serves as the central reference for project structure, proof status and architecture notes.
 
-4. **Create a `manifest.json`** at the project root listing the chapters to formalize and their target theorems/definitions. Each chapter entry has:
-   - `id`: unique identifier for the chapter
-   - `title`: human-readable chapter title
+4. **Create a `manifest.json`** at the project root listing the units (book chapters or paper sections) to formalize and their target theorems/definitions. Books use the `chapters` key, papers use `sections`; each entry has:
+   - `id`: unique identifier for the unit
+   - `title`: human-readable unit title
    - `source_path`: path to the LaTeX source file (relative to project root)
-   - `target_theorems`: list of theorem/definition IDs to formalize from this chapter
+   - `target_theorems`: list of theorem/definition IDs to formalize from this unit
 
-   See [`configs/example_manifest.json`](configs/example_manifest.json) for a full example from the algebraic combinatorics case study.
+   See [`configs/example_manifest.json`](configs/example_manifest.json) for a full example from the algebraic combinatorics case study, and [`docs/sources.md`](docs/sources.md) for the schema.
 
 5. **Create an empty `issues/` directory** at the project root. Agents use this as a lightweight file-system-based issue tracker — they create short YAML files here to flag blockers, request refactorings, or coordinate work across chapters.
 
@@ -110,22 +132,26 @@ python scripts/count_tokens.py /path/to/lean/project
 python scripts/plot_agent_efficiency.py /path/to/lean/project --out ./plots
 ```
 
-### Smoke test
+### Smoke tests
 
-A toy project is included under `examples/toy_project/` for quick testing. The setup script copies the files to a working directory, initializes git, fetches Mathlib and builds the project:
+Toy projects for both source kinds are included under `examples/`. Each
+setup script creates a working directory, sets up the lake project,
+initializes git, fetches Mathlib and builds:
 
 ```bash
+# Book pipeline (one chapter, 4 trivial targets about doubling naturals):
 bash examples/toy_project/setup.sh /tmp/repoprover-toy-test
+
+# Paper pipeline (init-paper ingests a two-section paper with labeled
+# theorems, an appendix and a bibliography):
+bash examples/toy_paper/setup.sh /tmp/repoprover-toy-paper
 ```
 
-Then run repoprover on it:
+Then run repoprover on either:
 
 ```bash
-source .venv/bin/activate
-python -m repoprover run /tmp/repoprover-toy-test --pool-size 2 --verbose
+pixi run repoprover run /tmp/repoprover-toy-paper --pool-size 2 --verbose
 ```
-
-The toy project has one chapter with 4 trivial targets (a definition and 3 theorems about doubling natural numbers).
 
 ### Trajectory viewer
 
@@ -134,6 +160,14 @@ To inspect agent trajectories from a run:
 ```bash
 python -m repoprover.viewer --dir /path/to/lean/project/runs --port 8080
 ```
+
+## Documentation
+
+- [`AGENTS.md`](AGENTS.md) — repo map, commands, and rules for coding agents
+- [`docs/design.md`](docs/design.md) — core beliefs and decision log
+- [`docs/sources.md`](docs/sources.md) — manifest schema, `init-paper`, label conventions
+- [`docs/project-setup.md`](docs/project-setup.md) — what a target Lean project needs
+- [`docs/plans/`](docs/plans/) — effort plans; [`docs/tech-debt.md`](docs/tech-debt.md) — known debts
 
 ## License
 

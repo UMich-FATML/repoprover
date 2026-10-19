@@ -33,9 +33,10 @@ disclosure of security bugs. In those cases, please go through the process
 outlined on that page and do not file a public issue.
 
 ## Coding Style
-* 2 spaces for indentation rather than tabs
-* 80 character line length
-* ...
+
+Style, layout, commands and repo rules live in [AGENTS.md](AGENTS.md) (repo
+map, `pixi` commands, docs pointers). Run `pixi run check` before submitting;
+it lints, checks formatting, type-checks and runs the tests.
 
 ## License
 By contributing to RepoProver, you agree that your contributions will be licensed
