@@ -1,0 +1,74 @@
+\documentclass{article}
+\usepackage{amsmath}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}{Corollary}
+
+\title{Doubling Properties of the Natural Numbers}
+\author{A. Author}
+\date{2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We study the map $d : \mathbb{N} \to \mathbb{N}$, $d(n) = 2n$, and prove that it
+preserves order and stays even. These elementary facts illustrate the
+RepoProver paper pipeline on a two-page source.
+\end{abstract}
+
+\section{Introduction}\label{sec:intro}
+
+Throughout this paper, $n$ ranges over the natural numbers $\mathbb{N}$. The
+central object is the doubling map
+\[
+d(n) = 2n.
+\]
+The main result of this paper is Theorem~\ref{thm:double-add}, proved in
+Section~\ref{sec:results}. We also use the classical fact that multiplication
+is monotone \cite{lean-mathlib}.
+
+\input{intro-facts}
+
+\section{Results}\label{sec:results}
+
+\begin{theorem}[Doubling is additive]\label{thm:double-add}
+For all $n, m \in \mathbb{N}$, $d(n + m) = d(n) + d(m)$.
+\end{theorem}
+
+\begin{proof}
+$d(n + m) = 2(n + m) = 2n + 2m = d(n) + d(m)$ by distributivity.
+\end{proof}
+
+\begin{corollary}\label{cor:double-two}
+$d(2) = 4$.
+\end{corollary}
+
+\begin{lemma}\label{lem:double-even}
+For all $n \in \mathbb{N}$, $d(n)$ is even.
+\end{lemma}
+
+\begin{proof}
+$d(n) = 2n = 2 \cdot n$ is even by definition.
+\end{proof}
+
+\begin{corollary}
+Every $d(n)$ with $n > 0$ is at least $2$.
+\end{corollary}
+
+\appendix
+
+\section{Background on Order}\label{app:order}
+
+\begin{lemma}\label{lem:double-mono}
+If $n \le m$ then $d(n) \le d(m)$.
+\end{lemma}
+
+\begin{proof}
+Multiplication by $2$ is monotone.
+\end{proof}
+
+\bibliographystyle{plain}
+\bibliography{refs}
+
+\end{document}

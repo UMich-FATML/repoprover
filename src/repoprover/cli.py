@@ -416,6 +416,36 @@ def add_path_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def cmd_init_paper(args: argparse.Namespace) -> int:
+    """Turn a paper (arXiv id or local tex) into a RepoProver project."""
+    from .paper_ingest import IngestError, ingest_paper, print_next_steps
+
+    project_dir = Path(args.path).resolve()
+    if args.arxiv is None and args.source is None:
+        print("Error: pass --arxiv <id> or --source <file|dir|tar.gz>", file=sys.stderr)
+        print("See docs/sources.md for what init-paper writes.", file=sys.stderr)
+        return 1
+
+    source = Path(args.source).resolve() if args.source else None
+    try:
+        result = ingest_paper(
+            project_dir,
+            arxiv=args.arxiv,
+            source=source,
+            project_name=args.project_name,
+            tex_dir=args.tex_dir,
+            split=args.split,
+            force=args.force,
+        )
+    except IngestError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    project_name = args.project_name or project_dir.name
+    print_next_steps(result, project_dir, project_name)
+    return 0
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -474,6 +504,46 @@ def main() -> int:
         help="Max agents per theorem/issue. Effective = min(this, 32 // n_targets) (default: 1)",
     )
 
+    # init-paper
+    p_init = subparsers.add_parser(
+        "init-paper",
+        help="Turn a research paper into a RepoProver project (writes manifest, CONTENTS.md, tex/, issues/)",
+    )
+    p_init.add_argument("path", help="Project directory to create/populate")
+    source_group = p_init.add_mutually_exclusive_group()
+    source_group.add_argument(
+        "--arxiv",
+        metavar="ID",
+        help="arXiv id of the paper (e.g. 2506.00738, 2506.00738v2, math/0601001)",
+    )
+    source_group.add_argument(
+        "--source",
+        metavar="PATH",
+        help="Local LaTeX source: the main .tex file, a directory, or a .tar.gz/.gz e-print",
+    )
+    p_init.add_argument(
+        "--project-name",
+        dest="project_name",
+        help="Name for the lake project (default: directory name)",
+    )
+    p_init.add_argument(
+        "--tex-dir",
+        dest="tex_dir",
+        default="tex",
+        help="Directory under the project for the tex sources (default: tex)",
+    )
+    p_init.add_argument(
+        "--split",
+        choices=["section", "none"],
+        default="section",
+        help="Split the paper into one unit per top-level \\section, or keep it whole (default: section)",
+    )
+    p_init.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing manifest.json or tex/ directory",
+    )
+
     # export
     p_export = subparsers.add_parser("export", help="Export state as JSON")
     add_path_argument(p_export)
@@ -489,6 +559,7 @@ def main() -> int:
         "status": cmd_status,
         "run": cmd_run,
         "export": cmd_export,
+        "init-paper": cmd_init_paper,
     }
 
     cmd_func = commands.get(args.command)

@@ -446,8 +446,9 @@ FILE_WRITE_TOOL_NAMES = frozenset(tool["function"]["name"] for tool in FILE_WRIT
 FILE_TOOL_NAMES = FILE_READ_TOOL_NAMES | FILE_WRITE_TOOL_NAMES
 
 
-# Extensions that are read-only (source files)
-READ_ONLY_EXTENSIONS = frozenset({".tex", ".pdf", ".txt"})
+# Extensions that are read-only (source files; .bib/.bbl so agents can read
+# the bibliography to decide what is [cited] without editing it)
+READ_ONLY_EXTENSIONS = frozenset({".tex", ".pdf", ".txt", ".bib", ".bbl"})
 
 
 # =============================================================================
