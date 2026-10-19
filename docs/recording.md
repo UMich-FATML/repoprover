@@ -43,11 +43,19 @@ runs/<run_name>/
 
 ```jsonl
 {"event": "start", "ts": "ISO8601", "agent_type": "prove", "config": {"model": "claude-sonnet-4-20250514"}}
+{"event": "msg", "ts": "ISO8601", "role": "system", "content": "..."}
 {"event": "msg", "ts": "ISO8601", "role": "user", "content": "..."}
-{"event": "msg", "ts": "ISO8601", "role": "assistant", "content": "...", "tool_calls": [{"name": "read_file", "args": {...}}]}
-{"event": "tool", "ts": "ISO8601", "name": "read_file", "args": {...}, "result": "...", "duration_ms": 50}
+{"event": "msg", "ts": "ISO8601", "role": "assistant", "content": "...", "reasoning_content": "...", "tool_calls": [{"id": "call_abc123", "name": "read_file", "args": {...}}]}
+{"event": "tool", "ts": "ISO8601", "name": "read_file", "tool_call_id": "call_abc123", "args": {...}, "result": "...", "duration_ms": 50}
 {"event": "done", "ts": "ISO8601", "status": "done", "iterations": 15, "error": null}
 ```
+
+The first `msg` event is always the agent's system prompt (`role: "system"`).
+`reasoning_content` is present on assistant messages whenever the API returns
+the model's thinking (it is recorded even when `preserve_thinking` is off —
+that flag only controls whether reasoning stays in the live conversation
+history). `tool_call_id` links a `tool` event to the matching entry in the
+preceding assistant message's `tool_calls`.
 
 ## Usage
 
@@ -187,9 +195,19 @@ The `merge_completed` event contains additional fields for failed merges:
 | Event | Fields | Description |
 |-------|--------|-------------|
 | `start` | `ts`, `agent_type`, `config` | Agent started |
-| `msg` | `ts`, `role`, `content`, `tool_calls?` | User or assistant message |
-| `tool` | `ts`, `name`, `args`, `result`, `duration_ms` | Tool call completed |
+| `msg` | `ts`, `role`, `content`, `reasoning_content?`, `tool_calls?` | System/user/assistant message; first `msg` is the system prompt, `reasoning_content` is the model's thinking when the API returns it |
+| `tool` | `ts`, `name`, `tool_call_id?`, `args`, `result`, `duration_ms` | Tool call completed; `tool_call_id` links to the assistant `tool_calls` entry |
+| `compaction` | `ts`, `compaction_number`, `context_tokens_before`, `context_tokens_after`, `input_tokens`, `output_tokens`, `summary` | Context was compacted; the model continues from the `summary` |
 | `done` | `ts`, `status`, `iterations`, `error?` | Agent finished |
+
+### Replaying a Run
+
+Recordings capture everything needed to reconstruct what the model saw: the
+system prompt (first `msg`), every user/assistant message (including
+reasoning), and every tool result (linked by `tool_call_id`). After a
+`compaction` event, the model's context was exactly the system prompt plus a
+single user message built from the recorded `summary` — so even
+post-compaction turns are fully reconstructible from the recording.
 
 ## Reading Recordings
 

@@ -398,9 +398,11 @@ def run_tool_loop(
     This is THE loop. BaseAgent, reviewers, and any other agent all use this.
 
     Recording contract:
+    - Records the system prompt as a "system" msg event
     - Records initial user message(s) from initial_messages
-    - Records each assistant response
-    - Records each tool call and result
+    - Records each assistant response, including reasoning_content when the
+      API returns it (recorded even when keep_reasoning is False)
+    - Records each tool call (with its id) and result
     - Does NOT call recorder.done() - that's the caller's responsibility
 
     Context Compaction:
@@ -450,8 +452,10 @@ def run_tool_loop(
     # Track compaction events
     compaction_count = 0
 
-    # Record initial user message(s)
+    # Record the system prompt and initial user message(s)
     if recorder:
+        if system_prompt:
+            recorder.record("system", system_prompt)
         for msg in initial_messages:
             if msg.get("role") == "user":
                 recorder.record("user", msg.get("content", ""))
@@ -560,11 +564,12 @@ def run_tool_loop(
             last_iteration_output_tokens = iteration_output_tokens
 
         # Build assistant message for history (OpenAI format)
+        # Reasoning is captured unconditionally: keep_reasoning only controls
+        # whether it stays in the in-memory history, not whether we record it
+        reasoning = getattr(message, "reasoning_content", None)
         assistant_message: dict[str, Any] = {"role": "assistant", "content": text}
-        if keep_reasoning:
-            reasoning = getattr(message, "reasoning_content", None)
-            if reasoning:
-                assistant_message["reasoning_content"] = reasoning
+        if keep_reasoning and reasoning:
+            assistant_message["reasoning_content"] = reasoning
 
         tool_calls_in_response = []
         if message.tool_calls:
@@ -585,18 +590,19 @@ def run_tool_loop(
             recorded_tool_calls = None
             if tool_calls_in_response:
                 recorded_tool_calls = []
-                for _tc_id, tc_name, tc_args_str in tool_calls_in_response:
+                for tc_id, tc_name, tc_args_str in tool_calls_in_response:
                     try:
                         tc_args = json.loads(tc_args_str)
                     except json.JSONDecodeError:
                         tc_args = {}
-                    recorded_tool_calls.append({"name": tc_name, "args": tc_args})
+                    recorded_tool_calls.append({"id": tc_id, "name": tc_name, "args": tc_args})
             recorder.record(
                 "assistant",
                 text,
                 recorded_tool_calls,
                 iteration_input_tokens if usage else None,
                 iteration_output_tokens if usage else None,
+                reasoning_content=reasoning,
             )
 
         # Check stop conditions
@@ -659,6 +665,7 @@ def run_tool_loop(
                     tc_args,
                     result,
                     duration * 1000,
+                    tool_call_id=tc.id,
                 )
 
         # Increment iteration in recorder

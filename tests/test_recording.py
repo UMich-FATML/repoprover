@@ -172,6 +172,62 @@ class TestAgentRecorder:
         assert tool_event["args"] == {"path": "Theorem.lean"}
         assert tool_event["result"] == "theorem foo : 1 = 1 := rfl"
         assert tool_event["duration_ms"] == 42.5
+        assert "tool_call_id" not in tool_event
+
+    def test_record_system_message(self, tmp_path: Path) -> None:
+        """Test recording the system prompt as a msg event."""
+        run_dir = tmp_path / "test-run"
+        session = SessionRecorder(run_dir)
+        session.start(branch="main", base_commit="abc123")
+        agent = session.register_agent("prove-001", "prove")
+
+        agent.record("system", "You are a Lean 4 prover agent...")
+
+        events = _read_jsonl(run_dir / "agents" / "prove-001.jsonl")
+        msg_event = events[-1]
+        assert msg_event["event"] == "msg"
+        assert msg_event["role"] == "system"
+        assert msg_event["content"] == "You are a Lean 4 prover agent..."
+
+    def test_record_assistant_message_with_reasoning(self, tmp_path: Path) -> None:
+        """Test that reasoning_content is saved when provided and omitted when not."""
+        run_dir = tmp_path / "test-run"
+        session = SessionRecorder(run_dir)
+        session.start(branch="main", base_commit="abc123")
+        agent = session.register_agent("prove-001", "prove")
+
+        agent.record("assistant", "Trying rfl...", reasoning_content="the goal is 1 = 1")
+        agent.record("assistant", "Done.")
+
+        events = _read_jsonl(run_dir / "agents" / "prove-001.jsonl")
+        with_reasoning = events[-2]
+        assert with_reasoning["event"] == "msg"
+        assert with_reasoning["role"] == "assistant"
+        assert with_reasoning["reasoning_content"] == "the goal is 1 = 1"
+        without_reasoning = events[-1]
+        assert without_reasoning["role"] == "assistant"
+        assert "reasoning_content" not in without_reasoning
+
+    def test_record_tool_call_with_id(self, tmp_path: Path) -> None:
+        """Test that tool_call_id is saved when provided and omitted when not."""
+        run_dir = tmp_path / "test-run"
+        session = SessionRecorder(run_dir)
+        session.start(branch="main", base_commit="abc123")
+        agent = session.register_agent("prove-001", "prove")
+
+        agent.record_tool(
+            "read_file",
+            {"path": "Theorem.lean"},
+            "theorem foo : 1 = 1 := rfl",
+            duration_ms=42.5,
+            tool_call_id="call_abc123",
+        )
+
+        events = _read_jsonl(run_dir / "agents" / "prove-001.jsonl")
+        tool_event = events[-1]
+        assert tool_event["event"] == "tool"
+        assert tool_event["tool_call_id"] == "call_abc123"
+        assert tool_event["name"] == "read_file"
 
     def test_increment_iteration(self, tmp_path: Path) -> None:
         """Test iteration counter."""

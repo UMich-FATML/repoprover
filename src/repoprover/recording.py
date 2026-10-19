@@ -136,8 +136,9 @@ class AgentRecorder:
 
     Events:
     - start: Agent started with config
-    - msg: User or assistant message
-    - tool: Tool call result
+    - msg: System/user/assistant message; the first msg is the agent's system
+      prompt, assistant messages may carry reasoning_content and tool_calls
+    - tool: Tool call result (with tool_call_id when the provider supplies one)
     - done: Agent completed
 
     Example (local mode with session):
@@ -202,15 +203,18 @@ class AgentRecorder:
         tool_calls: list[dict[str, Any]] | None = None,
         input_tokens: int | None = None,
         output_tokens: int | None = None,
+        reasoning_content: str | None = None,
     ) -> None:
-        """Record a message (user or assistant).
+        """Record a message (system, user, or assistant).
 
         Args:
-            role: "user" or "assistant"
+            role: "system", "user" or "assistant"
             content: Message content text
             tool_calls: Optional list of tool calls (for assistant messages)
             input_tokens: Optional token count for input to LLM on this turn
             output_tokens: Optional token count for LLM output on this turn
+            reasoning_content: Optional reasoning/thinking text the model
+                returned alongside its message (for assistant messages)
         """
         event: dict[str, Any] = {
             "event": "msg",
@@ -220,6 +224,8 @@ class AgentRecorder:
         }
         if tool_calls:
             event["tool_calls"] = tool_calls
+        if reasoning_content:
+            event["reasoning_content"] = reasoning_content
         if input_tokens is not None:
             event["input_tokens"] = input_tokens
             self._total_input_tokens += input_tokens
@@ -234,6 +240,7 @@ class AgentRecorder:
         args: dict[str, Any],
         result: str,
         duration_ms: float,
+        tool_call_id: str | None = None,
     ) -> None:
         """Record a tool call result.
 
@@ -242,17 +249,20 @@ class AgentRecorder:
             args: Tool arguments
             result: Tool result
             duration_ms: Duration in milliseconds
+            tool_call_id: Optional provider tool call id; links this event to
+                the matching entry in the assistant message's tool_calls
         """
-        self._write_event(
-            {
-                "event": "tool",
-                "ts": _iso_now(),
-                "name": name,
-                "args": args,
-                "result": result,
-                "duration_ms": duration_ms,
-            }
-        )
+        event: dict[str, Any] = {
+            "event": "tool",
+            "ts": _iso_now(),
+            "name": name,
+            "args": args,
+            "result": result,
+            "duration_ms": duration_ms,
+        }
+        if tool_call_id:
+            event["tool_call_id"] = tool_call_id
+        self._write_event(event)
 
     def flush(self) -> None:
         """Ensure buffered events are written to disk.

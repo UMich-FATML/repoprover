@@ -140,6 +140,41 @@ def test_tool_loop_defaults_send_no_extras():
     assert "reasoning_content" not in completions.calls[1]["messages"][2]
 
 
+def test_tool_loop_recording_saves_system_prompt_reasoning_and_ids(tmp_path):
+    """The recorder captures the system prompt, reasoning, and tool call ids."""
+    from repoprover.recording import AgentRecorder
+
+    recorder = AgentRecorder(tmp_path, "prove-001", "prove")
+    completions, result = _run(recorder=recorder)
+    assert result.final_text == "5"
+    assert completions.calls
+
+    events = [
+        json.loads(line) for line in (tmp_path / "agents" / "prove-001.jsonl").read_text().splitlines() if line.strip()
+    ]
+    msgs = [e for e in events if e["event"] == "msg"]
+    tools = [e for e in events if e["event"] == "tool"]
+
+    # First msg is the system prompt, then the user message
+    assert msgs[0]["role"] == "system"
+    assert msgs[0]["content"] == "sys"
+    assert msgs[1]["role"] == "user"
+    assert msgs[1]["content"] == "add 2 and 3"
+
+    # Assistant message carries reasoning and the tool call id, even though
+    # keep_reasoning defaults to False (recording is independent of history)
+    assistant = msgs[2]
+    assert assistant["role"] == "assistant"
+    assert assistant["reasoning_content"] == "need add"
+    assert assistant["tool_calls"][0]["id"] == "add:0"
+    assert assistant["tool_calls"][0]["name"] == "add"
+
+    # Tool result event links back via tool_call_id
+    assert tools[0]["name"] == "add"
+    assert tools[0]["tool_call_id"] == "add:0"
+    assert tools[0]["result"] == "5"
+
+
 def _parse_run(*argv: str):
     import sys
 
