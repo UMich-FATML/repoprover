@@ -31,6 +31,7 @@ pytest = ">=8"
 ruff = ">=0.8"
 pyright = ">=1.1.390"
 nodejs = ">=18"
+ripgrep = ">=15.2.0,<16"
 
 [pypi-dependencies]
 repoprover = { path = ".", editable = true }

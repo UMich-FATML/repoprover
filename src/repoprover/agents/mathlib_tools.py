@@ -123,8 +123,12 @@ def _run_grep_fallback(
     path: Path,
     case_insensitive: bool = True,
 ) -> list[dict[str, Any]]:
-    """Fallback to grep if ripgrep is not available."""
-    cmd = ["grep", "-rn", "--include", "*.lean"]
+    """Fallback to grep if ripgrep is not available.
+
+    `-H` forces the filename prefix: without it, grep on a single file prints
+    `line:text` and the `file:line:text` parse below would misread it.
+    """
+    cmd = ["grep", "-rnH", "--include", "*.lean"]
     if case_insensitive:
         cmd.append("-i")
     cmd.extend([pattern, str(path)])
@@ -142,7 +146,7 @@ def _run_grep_fallback(
     matches: list[dict[str, Any]] = []
     for line in result.stdout.splitlines():
         parts = line.split(":", 2)
-        if len(parts) >= 3:
+        if len(parts) >= 3 and parts[1].isdigit():
             try:
                 rel_path = str(Path(parts[0]).relative_to(path))
             except ValueError:

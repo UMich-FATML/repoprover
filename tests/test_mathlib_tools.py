@@ -194,3 +194,12 @@ class TestGrepFallback:
         matches = _run_grep_fallback("theorem", tmp_path, case_insensitive=False)
         assert len(matches) >= 1
         assert any("theorem" in m["text"] for m in matches)
+
+    def test_fallback_on_single_file_with_colons(self, tmp_path):
+        """A single-file search used to crash: grep omitted the filename and
+        `theorem conj_re (z : ℂ)` was parsed as `file:line:text`."""
+        lean_file = tmp_path / "Conj.lean"
+        lean_file.write_text("theorem conj_re (z : ℂ) : (conj z).re = z.re := rfl\n")
+
+        matches = _run_grep_fallback("conj_re", lean_file, case_insensitive=False)
+        assert [(m["line"], m["text"].startswith("theorem conj_re")) for m in matches] == [(1, True)]
