@@ -98,6 +98,8 @@ python -m repoprover run /path/to/lean/project --pool-size 10
 
 This starts the main coordinator loop which launches sketcher, prover, maintainer and reviewer agents, manages the merge queue and tracks progress. The project state is saved in `.repoprover/` inside the Lean project directory.
 
+Agents use `kimi-k3` on the comet gateway by default (no API key needed). Use `--provider`/`--model`/`--base-url` to pick another endpoint; see [`docs/project-setup.md`](docs/project-setup.md#llm-endpoint).
+
 Use `--clean` to start from scratch, `--verbose` for debug logging.
 
 ### Multi-node (SLURM)

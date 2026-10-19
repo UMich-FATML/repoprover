@@ -285,5 +285,29 @@ The `.repoprover/state.json` file is created automatically on first run. Key set
 
 - Python 3.10+
 - Lean 4 with Lake
-- API key for your LLM provider (set via `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `GEMINI_API_KEY`)
+- An LLM endpoint (see [LLM endpoint](#llm-endpoint) below)
+
+## LLM endpoint
+
+By default every agent calls **`kimi-k3` on the comet gateway** (the self-hosted
+SGLang fleet) — no API key needed. RepoProver owns its tool loop (it sends
+OpenAI-style `tools` itself), so no external agent harness is involved.
+
+- **Base URL**: read from `gateway_url` in the gateway state file
+  `~/shrd/sglang-serve/state/comet-gateway.json` (override the path with
+  `REPOPROVER_COMET_GATEWAY_FILE`) plus `/v1`. It is re-read whenever an agent
+  creates its client, so a moved gateway is picked up by new agents.
+- **Request extras**: `reasoning_effort` (default `high`) and
+  `chat_template_kwargs.preserve_thinking=true`; the model's
+  `reasoning_content` is kept in the agent's message history.
+- **Defaults**: `max_tokens=32768`, `temperature=0.7`, 1800 s request timeout.
+- **Startup check**: `run` lists the endpoint's models and fails fast if the
+  model is not served (`--skip-llm-check` disables this).
+
+`run` flags: `--provider {comet,anthropic,openai,google}`, `--model`,
+`--base-url`, `--reasoning-effort {low,high,max}`, `--max-tokens`,
+`--temperature`. The `stool` launcher forwards `--provider`, `--model`,
+`--base_url`, `--reasoning_effort`. Non-comet providers need their key in
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `GEMINI_API_KEY`; comet uses
+`COMET_API_KEY` only if set.
 - Git

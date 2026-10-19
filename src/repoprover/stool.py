@@ -61,6 +61,12 @@ class StoolArgs:
     prs_to_issues: bool = False  # Convert existing PRs to issues on startup
     agents_per_target: int = 1  # Max agents per theorem/issue (effective = min(this, 32 // n_targets))
 
+    # LLM options (empty = CLI default: kimi-k3 via the comet gateway)
+    provider: str = ""
+    model: str = ""
+    base_url: str = ""
+    reasoning_effort: str = ""
+
     # Launcher settings
     launcher: str = "sbatch"  # sbatch | bash (if in salloc)
     dirs_exists_ok: bool = False
@@ -300,6 +306,14 @@ def launch_job(args: StoolArgs) -> None:
         cmd_parts.append("--prs-to-issues")
     if args.agents_per_target > 1:
         cmd_parts.append(f"--agents-per-target={args.agents_per_target}")
+    for flag, value in [
+        ("provider", args.provider),
+        ("model", args.model),
+        ("base-url", args.base_url),
+        ("reasoning-effort", args.reasoning_effort),
+    ]:
+        if value:
+            cmd_parts.append(f'--{flag}="{value}"')
 
     launch_command = " ".join(cmd_parts)
 

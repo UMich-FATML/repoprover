@@ -47,3 +47,4 @@ guidance blocks (`PAPER_SKETCH_GUIDANCE`), not in new code paths.
 | 2026-10-19 | No CI workflows; local hooks only (`pixi run` tasks + `.githooks/pre-commit`) | The repo's gate is `pixi run check`; a remote CI would need secrets and mirrors this repo does not have. |
 | 2026-10-19 | `E501` ignored; ruff line-length 120 | Long prompt strings and table rows; format owns the line length, review owns readability. |
 | 2026-10-19 | Coordinator state saves both `project_id` and `source_kind`; load falls back to legacy `book_id`, defaulting `source_kind` to `book` | Old runs resume unchanged; new runs record what they are. |
+| 2026-10-19 | Default LLM is `kimi-k3` on the comet gateway, called directly through the OpenAI SDK; no external agent harness (e.g. dsh) | RepoProver already owns its tool loop and gives tools to the model itself, so a harness would only duplicate it. The gateway URL comes from its state file because the gateway moves between nodes. |

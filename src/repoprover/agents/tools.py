@@ -147,6 +147,7 @@ def _perform_compaction(
     temperature: float,
     log_prefix: str,
     current_context_tokens: int,
+    extra_body: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], int, int, str]:
     """Perform context compaction by adding compaction prompt to the existing conversation.
 
@@ -193,6 +194,7 @@ def _perform_compaction(
         messages=full_messages,
         tools=tools,
         log_prefix=f"{log_prefix}[compaction]",
+        extra_body=extra_body,
     )
 
     choice = response.choices[0]
@@ -300,6 +302,7 @@ def _call_with_retry(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]] | None,
     log_prefix: str = "",
+    extra_body: dict[str, Any] | None = None,
     max_retries: int = 100,
     base_delay: float = 1.0,
     max_delay: float = 60.0,
@@ -319,6 +322,9 @@ def _call_with_retry(
     }
     if tools:
         kwargs["tools"] = tools
+    if extra_body is not None:
+        # Provider-specific request fields (e.g. reasoning_effort for SGLang).
+        kwargs["extra_body"] = extra_body
 
     last_exception: Exception | None = None
     for attempt in range(max_retries + 1):
@@ -376,6 +382,8 @@ def run_tool_loop(
     log_prefix: str = "",
     enable_compaction: bool = True,
     compaction_threshold: int = COMPACTION_THRESHOLD_TOKENS,
+    extra_body: dict[str, Any] | None = None,
+    keep_reasoning: bool = False,
 ) -> ToolLoopResult:
     """Core tool loop - single implementation used by all agents.
 
@@ -408,6 +416,9 @@ def run_tool_loop(
         log_prefix: Prefix for log messages
         enable_compaction: Enable automatic context compaction (default True)
         compaction_threshold: Token threshold for triggering compaction (default 150k)
+        extra_body: Extra provider-specific request fields forwarded to the API
+        keep_reasoning: Keep the model's reasoning_content in the assistant history
+            (for models whose chat template re-renders prior thinking, e.g. kimi-k3)
 
       Returns:
         ToolLoopResult with final_text, messages, tool_calls, iteration_count, stop_reason
@@ -464,6 +475,7 @@ def run_tool_loop(
                     temperature=temperature,
                     log_prefix=log_prefix,
                     current_context_tokens=estimated_next_input,
+                    extra_body=extra_body,
                 )
 
                 # Track compaction token usage
@@ -516,6 +528,7 @@ def run_tool_loop(
             messages=full_messages,
             tools=tools,
             log_prefix=log_prefix,
+            extra_body=extra_body,
         )
 
         choice = response.choices[0]
@@ -537,6 +550,10 @@ def run_tool_loop(
 
         # Build assistant message for history (OpenAI format)
         assistant_message: dict[str, Any] = {"role": "assistant", "content": text}
+        if keep_reasoning:
+            reasoning = getattr(message, "reasoning_content", None)
+            if reasoning:
+                assistant_message["reasoning_content"] = reasoning
 
         tool_calls_in_response = []
         if message.tool_calls:

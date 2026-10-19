@@ -11,6 +11,7 @@ import logging
 import sys
 from pathlib import Path
 
+from .agents.base import PROVIDERS, AgentConfig, create_client
 from .agents.lean_tools import (
     configure_global_pool,
     shutdown_global_pool,
@@ -72,6 +73,41 @@ def setup_logging(log_dir: Path | None = None, verbose: bool = False) -> None:
         "urllib3.connectionpool",
     ]:
         logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+
+
+def agent_config_from_args(args: argparse.Namespace) -> AgentConfig:
+    """Build the LLM AgentConfig from `run` flags; unset flags keep the defaults."""
+    overrides = {
+        name: getattr(args, name, None)
+        for name in ("model", "base_url", "reasoning_effort", "max_tokens", "temperature")
+    }
+    return AgentConfig(
+        provider=getattr(args, "provider", None) or "",
+        **{k: v for k, v in overrides.items() if v is not None},
+    )
+
+
+def check_llm_endpoint(config: AgentConfig) -> str | None:
+    """Verify the endpoint serves the configured model. Returns an error or None."""
+    try:
+        client = create_client(config)
+    except ValueError as e:
+        return str(e)
+    base_url = str(client.base_url)
+    try:
+        served = [m.id for m in client.with_options(timeout=30, max_retries=1).models.list()]
+    except Exception as e:
+        return (
+            f"Cannot reach LLM endpoint {base_url}: {type(e).__name__}: {e}. "
+            "Check the server/gateway is up, pass --base-url, or use --skip-llm-check"
+        )
+    if served and config.model not in served:
+        return (
+            f"Model '{config.model}' is not served at {base_url} (available: {', '.join(served)}). "
+            "Pass --model with one of those, or --skip-llm-check"
+        )
+    print(f"[INIT] LLM: {config.provider}/{config.model} @ {base_url}")
+    return None
 
 
 def find_manifest_or_error(base_project: Path) -> Path | None:
@@ -197,6 +233,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             base_project=base_project,
             master_port=get_master_port(),
             lean_pool_size=args.pool_size,
+            agent_config=agent_config_from_args(args),
         )
 
     # Rank 0: start coordinator in background thread
@@ -260,6 +297,7 @@ def _run_worker(base_project: Path, args: argparse.Namespace) -> int:
     try:
         worker = DistributedWorker(
             base_project=base_project,
+            agent_config=agent_config_from_args(args),
             lean_pool_size=lean_pool_size,
         )
         worker.run()
@@ -281,6 +319,13 @@ def _run_coordinator(base_project: Path, args: argparse.Namespace) -> int:
     state_file = repoprover_dir / "state.json"
     worktrees_root = repoprover_dir / "worktrees"
     runs_dir = base_project / "runs"
+
+    agent_config = agent_config_from_args(args)
+    if not getattr(args, "skip_llm_check", False):
+        error = check_llm_endpoint(agent_config)
+        if error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 1
 
     # Configure centralized REPL pool for lean_check
     pool_size = args.pool_size
@@ -329,6 +374,7 @@ def _run_coordinator(base_project: Path, args: argparse.Namespace) -> int:
         runs_dir=runs_dir,
         prs_to_issues=args.prs_to_issues,
         agents_per_target=args.agents_per_target,
+        agent_config=agent_config,
     )
 
     # Skip loading state if: initializing, reinitializing, or cleaning
@@ -502,6 +548,29 @@ def main() -> int:
         default=1,
         dest="agents_per_target",
         help="Max agents per theorem/issue. Effective = min(this, 32 // n_targets) (default: 1)",
+    )
+    llm = p_run.add_argument_group("LLM (default: kimi-k3 on the comet gateway, see docs/project-setup.md)")
+    llm.add_argument(
+        "--provider",
+        choices=PROVIDERS,
+        default="comet",
+        help="LLM provider (default: comet, whose URL comes from the gateway state file)",
+    )
+    llm.add_argument("--model", help="Model name (default: the provider default, e.g. kimi-k3 for comet)")
+    llm.add_argument("--base-url", dest="base_url", help="OpenAI-compatible base URL, overriding the provider's")
+    llm.add_argument(
+        "--reasoning-effort",
+        dest="reasoning_effort",
+        choices=["low", "high", "max"],
+        help="Reasoning effort sent to comet models (default: high)",
+    )
+    llm.add_argument("--max-tokens", dest="max_tokens", type=int, help="Max completion tokens per call")
+    llm.add_argument("--temperature", type=float, help="Sampling temperature (default: 0.7)")
+    llm.add_argument(
+        "--skip-llm-check",
+        action="store_true",
+        dest="skip_llm_check",
+        help="Do not verify at startup that the endpoint serves the model",
     )
 
     # init-paper

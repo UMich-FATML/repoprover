@@ -372,13 +372,21 @@ Benefits:
 ```python
 @dataclass
 class AgentConfig:
-    model: str = "claude-sonnet-4-20250514"
+    provider: str = "comet"  # comet (kimi-k3 via the gateway), anthropic, openai, google
+    model: str = ""  # provider default: kimi-k3 for comet
     temperature: float = 0.7
-    max_tokens: int = 8192
-    max_iterations: int = 128
-    api_timeout: int = 120
-    provider: str = ""  # anthropic, openai, google
+    max_tokens: int = 8192  # comet: raised to 32768 when left at the default
+    max_iterations: int = 512
+    api_key: str = ""  # comet needs none
+    base_url: str = ""  # comet: gateway_url from the gateway state file
+    reasoning_effort: str | None = None  # comet default: "high"
+    preserve_thinking: bool | None = None  # comet default: True
+    request_timeout: float = 1800.0
 ```
+
+`AgentConfig.extra_body()` holds provider-specific request fields that are passed
+through `run_tool_loop(extra_body=...)`. See
+[project-setup.md](project-setup.md#llm-endpoint) for endpoint resolution and CLI flags.
 
 ## Tool System
 

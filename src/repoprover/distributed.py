@@ -733,6 +733,7 @@ def _mock_worker_process(
     rank: int,
     master_port: int,
     lean_pool_size: int = 24,
+    agent_config: Any | None = None,
 ) -> None:
     """Worker process entry point for mock workers."""
     # Set mock environment
@@ -741,7 +742,7 @@ def _mock_worker_process(
     os.environ["MOCK_MASTER_PORT"] = str(master_port)
 
     # Override get_master_port for mock workers
-    worker = DistributedWorker(base_project, lean_pool_size=lean_pool_size)
+    worker = DistributedWorker(base_project, agent_config=agent_config, lean_pool_size=lean_pool_size)
     worker.run()
 
 
@@ -750,6 +751,7 @@ def spawn_mock_workers(
     base_project: Path,
     master_port: int,
     lean_pool_size: int = 24,
+    agent_config: Any | None = None,
 ) -> list[multiprocessing.Process]:
     """Spawn N local worker processes for testing without SLURM.
 
@@ -757,6 +759,7 @@ def spawn_mock_workers(
         n: Number of workers to spawn
         base_project: Path to the Lean project
         master_port: Base port for ZMQ communication
+        agent_config: AgentConfig for the workers' LLM calls (None = defaults)
 
     Returns:
         List of Process objects (caller should join/terminate these)
@@ -774,7 +777,7 @@ def spawn_mock_workers(
         rank = i + 1  # Workers are ranks 1..n, coordinator is 0
         p = multiprocessing.Process(
             target=_mock_worker_process,
-            args=(base_project, rank, master_port, lean_pool_size),
+            args=(base_project, rank, master_port, lean_pool_size, agent_config),
         )
         p.start()
         processes.append(p)

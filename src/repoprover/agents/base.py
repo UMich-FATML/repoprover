@@ -39,6 +39,16 @@ logger = getLogger(__name__)
 # Provider Configuration
 # =============================================================================
 
+# "comet" is the self-hosted SGLang fleet behind the comet gateway. Its base URL
+# is not fixed: it is read from the gateway state file each time a client is
+# created (see resolve_comet_base_url), so a moved gateway is picked up.
+COMET_PROVIDER = "comet"
+COMET_GATEWAY_FILE_ENV = "REPOPROVER_COMET_GATEWAY_FILE"
+COMET_GATEWAY_FILE_DEFAULT = "~/shrd/sglang-serve/state/comet-gateway.json"
+COMET_API_KEY_ENV = "COMET_API_KEY"  # optional: the gateway is unauthenticated
+COMET_DEFAULT_MAX_TOKENS = 32768
+COMET_DEFAULT_REASONING_EFFORT = "high"
+
 PROVIDER_BASE_URLS = {
     "anthropic": "https://api.anthropic.com/v1/",
     "openai": "https://api.openai.com/v1/",
@@ -52,10 +62,39 @@ PROVIDER_API_KEY_ENV = {
 }
 
 PROVIDER_DEFAULT_MODELS = {
+    COMET_PROVIDER: "kimi-k3",
     "anthropic": "claude-sonnet-4-20250514",
     "openai": "gpt-4o",
     "google": "gemini-2.5-flash",
 }
+
+PROVIDERS = (COMET_PROVIDER, "anthropic", "openai", "google")
+DEFAULT_MAX_TOKENS = 8192
+DEFAULT_REQUEST_TIMEOUT = 1800.0  # seconds; long reasoning turns exceed the SDK's 600s
+
+
+def resolve_comet_base_url() -> str:
+    """Return the comet gateway's OpenAI base URL from its state file.
+
+    The file is ``$REPOPROVER_COMET_GATEWAY_FILE`` or
+    ``~/shrd/sglang-serve/state/comet-gateway.json``; its ``gateway_url`` is
+    reachable cluster-wide (``probe_url`` is only valid on the gateway host).
+    """
+    path = Path(os.path.expanduser(os.environ.get(COMET_GATEWAY_FILE_ENV) or COMET_GATEWAY_FILE_DEFAULT))
+    fix = (
+        f"Start/check the comet gateway, point {COMET_GATEWAY_FILE_ENV} at its state file, "
+        "or pass --base-url http://<host>:<port>/v1"
+    )
+    try:
+        data = json.loads(path.read_text())
+    except FileNotFoundError:
+        raise ValueError(f"Comet gateway state file not found: {path}. {fix}") from None
+    except (OSError, json.JSONDecodeError) as e:
+        raise ValueError(f"Cannot read comet gateway state file {path}: {e}. {fix}") from e
+    url = data.get("gateway_url") if isinstance(data, dict) else None
+    if not url or not isinstance(url, str):
+        raise ValueError(f"No gateway_url in comet gateway state file {path}. {fix}")
+    return url.rstrip("/") + "/v1"
 
 
 # =============================================================================
@@ -67,19 +106,44 @@ PROVIDER_DEFAULT_MODELS = {
 class AgentConfig:
     """Configuration for agents."""
 
-    provider: str = ""  # anthropic, openai, google (must be set)
+    provider: str = COMET_PROVIDER  # comet (default, kimi-k3), anthropic, openai, google
     model: str = ""  # If empty, uses provider default
     temperature: float = 0.7
-    max_tokens: int = 8192
+    max_tokens: int = DEFAULT_MAX_TOKENS  # comet: raised to 32768 when left at the default
     max_iterations: int = DEFAULT_MAX_ITERATIONS
     api_key: str = ""  # If empty, uses env var
-    base_url: str = ""  # If empty, uses provider default
+    base_url: str = ""  # If empty, uses provider default (comet: gateway state file)
     # Mathlib grep tools configuration
     mathlib_grep: bool = True  # Enable mathlib_grep tools for searching Mathlib source
+    # Reasoning models (sent as request extras; comet defaults: "high", True)
+    reasoning_effort: str | None = None  # low | high | max
+    preserve_thinking: bool | None = None  # keep reasoning_content in history
+    request_timeout: float = DEFAULT_REQUEST_TIMEOUT
 
     def __post_init__(self) -> None:
+        if not self.provider:
+            self.provider = COMET_PROVIDER
         if not self.model:
             self.model = PROVIDER_DEFAULT_MODELS.get(self.provider, "claude-sonnet-4-20250514")
+        is_comet = self.provider == COMET_PROVIDER
+        if is_comet:
+            if self.reasoning_effort is None:
+                self.reasoning_effort = COMET_DEFAULT_REASONING_EFFORT
+            if self.max_tokens == DEFAULT_MAX_TOKENS:
+                self.max_tokens = COMET_DEFAULT_MAX_TOKENS
+        if self.preserve_thinking is None:
+            self.preserve_thinking = is_comet
+
+    def extra_body(self) -> dict[str, Any] | None:
+        """Provider-specific request fields, or None when there are none."""
+        if self.provider != COMET_PROVIDER:
+            return None
+        body: dict[str, Any] = {}
+        if self.reasoning_effort:
+            body["reasoning_effort"] = self.reasoning_effort
+        if self.preserve_thinking:
+            body["chat_template_kwargs"] = {"preserve_thinking": True}
+        return body or None
 
 
 @dataclass
@@ -138,11 +202,17 @@ class AgentResult:
 
 def create_client(config: AgentConfig) -> OpenAI:
     """Create an OpenAI-compatible client for the configured provider."""
-    base_url = config.base_url or PROVIDER_BASE_URLS.get(config.provider, "")
+    is_comet = config.provider == COMET_PROVIDER
+    base_url = config.base_url
+    if not base_url:
+        base_url = resolve_comet_base_url() if is_comet else PROVIDER_BASE_URLS.get(config.provider, "")
     if not base_url:
         raise ValueError(f"No base URL for provider '{config.provider}'. Provide base_url in AgentConfig.")
 
     api_key = config.api_key
+    if not api_key and is_comet:
+        # Unauthenticated gateway; the SDK still requires a non-empty key.
+        api_key = os.environ.get(COMET_API_KEY_ENV, "") or "EMPTY"
     if not api_key:
         env_var = PROVIDER_API_KEY_ENV.get(config.provider, "")
         api_key = os.environ.get(env_var, "")
@@ -152,7 +222,8 @@ def create_client(config: AgentConfig) -> OpenAI:
     return OpenAI(
         base_url=base_url,
         api_key=api_key,
-        default_headers={"anthropic-beta": ""},
+        timeout=config.request_timeout,
+        default_headers=None if is_comet else {"anthropic-beta": ""},
     )
 
 
@@ -189,6 +260,8 @@ def call_llm_simple(
         tool_handler=lambda name, args: "Error: No tools available",
         max_tokens=config.max_tokens,
         temperature=config.temperature,
+        extra_body=config.extra_body(),
+        keep_reasoning=bool(config.preserve_thinking),
     )
     return result.final_text
 
@@ -438,6 +511,8 @@ class BaseAgent(ABC):
                 should_stop=self.should_stop,
                 recorder=self.recorder,
                 log_prefix=self.log_prefix,
+                extra_body=self.config.extra_body(),
+                keep_reasoning=bool(self.config.preserve_thinking),
             )
 
             # Update run metadata from result
