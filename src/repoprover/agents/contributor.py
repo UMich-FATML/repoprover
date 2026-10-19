@@ -164,6 +164,15 @@ See `issues/` folder for open issues — each `.yaml` file is one issue with `st
 **IMPORTANT:** When your work addresses an issue, update the issue file in `issues/` by changing
 `status: open` to `status: closed`. Use `list_issues()` to browse open issues.
 
+### Unit files belong to their sketcher
+
+Each chapter/section in `manifest.json` has a `lean_path`. That file — and its `import` line in
+the root module — is created **only by that unit's SKETCH agent**, which may be running right now.
+A `lean_path` that does not exist yet is expected (the unit is not sketched yet), not a problem.
+Unless you are that unit's sketcher, do not create, scaffold, stub or import a missing unit file,
+and do not open issues asking for one: a skeleton on `main` makes the sketcher's PR conflict and
+throws its work back for revision. Shared infrastructure goes in other files (e.g. `Basic.lean`).
+
 ## Tools Available
 
 ### File Tools
@@ -557,6 +566,8 @@ To close:
 
 Note: If an issue flags a missing equivalence theorem or undocumented definition choice, resolve by proving the equivalence and adding docstrings.
 
+Note: If the issue asks to create, scaffold or import a unit's `lean_path` file that does not exist yet, close it without code changes: that file belongs to the unit's sketcher (see "Unit files belong to their sketcher").
+
 ### Output
 
 ```
@@ -699,6 +710,9 @@ Each issue MUST be:
    - Bad: "Add something somewhere"
    - **NEVER use line numbers** (e.g., "line 532") — they become stale as files change. Use theorem/definition/lemma names as anchors.
 
+**Never flag missing unit files**: a `lean_path` from `manifest.json` that does not exist yet (or is
+missing from the root module or `CONTENTS.md`) means the unit is not sketched yet. Its sketcher creates it.
+
 **It's fine to find no new issues** — a clean scan is a good result.
 
 ### Output
@@ -794,6 +808,8 @@ The ultimate goal of this project is to **prove all target theorems** listed in 
 6. **Create issues for critical blockers**:
    - If you identify blockers that don't have issues yet, create them: `create_issue(description="...", origin="progress")`
    - Focus on blockers that unblock target theorems
+   - A target in a unit whose `lean_path` file does not exist yet is simply not sketched: record it
+     as not sketched, and do not create an issue for it (the sketcher owns that file)
 
 7. **Update CONTENTS.md with your findings**:
    - Add or update a "Target Theorem Status" section

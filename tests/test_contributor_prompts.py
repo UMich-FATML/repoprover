@@ -140,6 +140,22 @@ class TestSystemPrompt:
         assert "{project_noun}" not in prompt
         assert "{unit_noun}" not in prompt
 
+    @pytest.mark.parametrize(
+        "task",
+        [
+            ContributorTask.maintain(issue_id="abcd1234"),
+            ContributorTask.scan(),
+            ContributorTask.triage(),
+            ContributorTask.progress(),
+        ],
+        ids=["maintain", "scan", "triage", "progress"],
+    )
+    def test_non_sketch_modes_leave_unit_files_to_sketchers(self, task) -> None:
+        # Support agents scaffolding unsketched chapter files made every in-flight sketch conflict.
+        prompt = make_agent(task).get_system_prompt()
+        assert "Unit files belong to their sketcher" in prompt
+        assert "do not create, scaffold, stub or import a missing unit file" in prompt
+
     def test_unknown_source_kind_falls_back_to_book(self) -> None:
         agent = make_agent(ContributorTask.scan(source_kind="pamphlet"))
         prompt = agent.get_system_prompt()
