@@ -15,7 +15,7 @@ from .agents.lean_tools import (
     configure_global_pool,
     shutdown_global_pool,
 )
-from .coordinator import BookCoordinator, BookCoordinatorConfig
+from .coordinator import Coordinator, CoordinatorConfig
 from .distributed import (
     DistributedWorker,
     cleanup_mock_workers,
@@ -24,6 +24,7 @@ from .distributed import (
     get_world_size,
     spawn_mock_workers,
 )
+from .manifest import ManifestError, SourceKind, find_manifest
 
 DEFAULT_MANIFEST_NAME = "manifest.json"
 
@@ -73,17 +74,21 @@ def setup_logging(log_dir: Path | None = None, verbose: bool = False) -> None:
         logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 
-def find_manifest(base_project: Path) -> Path | None:
-    """Find manifest file in project directory."""
-    candidates = [
-        base_project / DEFAULT_MANIFEST_NAME,
-        base_project / "repoprover.json",
-        base_project / ".repoprover" / "manifest.json",
-    ]
-    for path in candidates:
-        if path.exists():
-            return path
-    return None
+def find_manifest_or_error(base_project: Path) -> Path | None:
+    """Find the manifest file, printing how to fix it if none exists."""
+    path = find_manifest(base_project)
+    if path is None:
+        print(f"Error: No manifest found in {base_project}", file=sys.stderr)
+        print(
+            f"  Looked for: {DEFAULT_MANIFEST_NAME}, repoprover.json, .repoprover/manifest.json",
+            file=sys.stderr,
+        )
+        print(
+            "  For a paper, `repoprover init-paper` can generate one from an arXiv id "
+            "or a tex source. See docs/sources.md",
+            file=sys.stderr,
+        )
+    return path
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -96,21 +101,24 @@ def cmd_status(args: argparse.Namespace) -> int:
         print("Run 'repoprover run' first")
         return 1
 
-    config = BookCoordinatorConfig(
-        book_id="",
+    config = CoordinatorConfig(
+        project_id="",
         title="",
         base_project=base_project,
         worktrees_root=base_project / ".repoprover" / "worktrees",
         state_file=state_file,
     )
 
-    coordinator = BookCoordinator(config)
+    coordinator = Coordinator(config)
     status = coordinator.get_status()
+    kind = coordinator.source_kind
+    units = kind.unit_noun.capitalize() + "s"
+    icon = "📚" if kind is SourceKind.BOOK else "📄"
 
     # Print status
-    print(f"\n📚 {status['title'] or status['book_id']}")
+    print(f"\n{icon} {status['title'] or status['project_id']}")
     print("=" * 50)
-    print(f"Chapters:          {status['chapters_with_sketch']}/{status['total_chapters']} sketched")
+    print(f"{units:18} {status['units_with_sketch']}/{status['total_units']} sketched")
     print(f"PRs:               {status['total_prs']} total")
     print(f"  Pending review:  {status['pending_review']}")
     print(f"  Needs revision:  {status['needs_revision']}")
@@ -119,7 +127,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"Theorems proved:   {status['completed_theorems']}")
 
     if args.chapters:
-        print("\n📖 Chapters:")
+        print(f"\n📖 {units}:")
         print("-" * 50)
         for chapter_id, info in coordinator.state.chapters.items():
             sketch_status = "✅" if info.get("sketch_merged") else "⬜"
@@ -280,10 +288,8 @@ def _run_coordinator(base_project: Path, args: argparse.Namespace) -> int:
     print(f"[INIT] lean_check REPL pool configured (size={pool_size})")
 
     # Find manifest - required
-    manifest_path = find_manifest(base_project)
+    manifest_path = find_manifest_or_error(base_project)
     if manifest_path is None:
-        print(f"Error: No manifest found in {base_project}")
-        print(f"  Looked for: {DEFAULT_MANIFEST_NAME}, repoprover.json, .repoprover/manifest.json")
         return 1
 
     # Auto-initialize if needed
@@ -311,12 +317,12 @@ def _run_coordinator(base_project: Path, args: argparse.Namespace) -> int:
     if should_clean:
         print("[CLEAN] Cleaning previous run data...")
 
-    # Use directory name as book_id
-    book_id = base_project.name
+    # Use directory name as project_id
+    project_id = base_project.name
 
-    config = BookCoordinatorConfig(
-        book_id=book_id,
-        title=book_id,
+    config = CoordinatorConfig(
+        project_id=project_id,
+        title=project_id,
         base_project=base_project,
         worktrees_root=worktrees_root,
         state_file=state_file,
@@ -327,7 +333,7 @@ def _run_coordinator(base_project: Path, args: argparse.Namespace) -> int:
 
     # Skip loading state if: initializing, reinitializing, or cleaning
     skip_load = needs_init or needs_reinit or should_clean
-    coordinator = BookCoordinator(config, skip_load=skip_load)
+    coordinator = Coordinator(config, skip_load=skip_load)
 
     # Set up logging to the run directory (now that we have it)
     log_dir = None
@@ -337,15 +343,20 @@ def _run_coordinator(base_project: Path, args: argparse.Namespace) -> int:
 
     # Load manifest (always reload to pick up changes)
     print(f"[INIT] Loading manifest from {manifest_path}...")
-    count = coordinator.load_manifest(manifest_path)
-    print(f"   Loaded {count} chapters")
+    try:
+        count = coordinator.load_manifest(manifest_path)
+    except ManifestError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    kind = coordinator.source_kind
+    print(f"   Loaded {count} {kind.unit_noun_plural} ({kind.project_noun} project)")
 
     # Clean coordinator state if requested (after manifest load)
     if args.clean and not needs_init:
         coordinator.clean()
 
-    print(f"[START] Starting RepoProver for {coordinator.state.book_id}")
-    print(f"   Chapters: {len(coordinator.state.chapters)}")
+    print(f"[START] Starting RepoProver for {coordinator.state.project_id}")
+    print(f"   {kind.unit_noun_plural.capitalize()}: {len(coordinator.state.chapters)}")
     print(f"   State file: {state_file}")
     if coordinator.session_recorder:
         print(f"   Recording to: {coordinator.session_recorder.run_dir}")
@@ -366,7 +377,7 @@ def _run_coordinator(base_project: Path, args: argparse.Namespace) -> int:
     status = coordinator.get_status()
     print("\n" + "=" * 50)
     print("Final status:")
-    print(f"  Chapters sketched: {status['chapters_with_sketch']}/{status['total_chapters']}")
+    print(f"  {kind.unit_noun_plural.capitalize()} sketched: {status['units_with_sketch']}/{status['total_units']}")
     print(f"  PRs merged: {status['merged']}")
     print(f"  Theorems proved: {status['completed_theorems']}")
 
@@ -418,7 +429,9 @@ def main() -> int:
     # status
     p_status = subparsers.add_parser("status", help="Show project status")
     add_path_argument(p_status)
-    p_status.add_argument("-c", "--chapters", action="store_true", help="Show chapter details")
+    p_status.add_argument(
+        "-c", "--chapters", "--units", action="store_true", help="Show unit (chapter/section) details"
+    )
     p_status.add_argument("--prs", action="store_true", help="Show PR details")
 
     # run

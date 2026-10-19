@@ -1,13 +1,18 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 
-"""Book Coordinator - Simple run loop for book formalization.
+"""Coordinator - Simple run loop for formalizing a math book or paper.
 
 Design principles:
 - PR = branch name submitted to a queue (review or merge)
 - Simple loop: agent → review → (fail → agent) → (success → merge)
 - Resumable from partial runs
 - Fully async for parallel agent execution
+
+The source kind (book or paper, see manifest.py) only changes wording;
+the loop, review flow and state format are identical. Internally a unit of
+work (a book chapter or a paper section) is tracked as `chapter_id` for
+historical reasons - state files, recordings and the viewer all use that key.
 """
 
 from __future__ import annotations
@@ -47,6 +52,16 @@ from .git_worktree import WorktreePool
 from .lean_utils import DECL_HEADER_RE as _DECL_HEADER_RE
 from .lean_utils import THEOREM_NAME_RE as _THEOREM_NAME_RE
 from .lean_utils import parse_diff_stats, strip_comments
+from .manifest import (
+    Manifest,
+    SourceKind,
+    find_manifest,
+    initial_sketch_issues,
+    render_contents_md,
+)
+from .manifest import (
+    load_manifest as load_manifest_file,
+)
 from .recording import SessionRecorder, create_session_recorder, read_agent_dialog
 from .types import AgentType, ReviewContext
 from .utils import timed, timed_run
@@ -65,10 +80,10 @@ logger = getLogger(__name__)
 
 
 @dataclass
-class BookCoordinatorConfig:
-    """Configuration for the book coordinator."""
+class CoordinatorConfig:
+    """Configuration for the coordinator."""
 
-    book_id: str
+    project_id: str
     title: str
     base_project: Path
     worktrees_root: Path
@@ -168,7 +183,10 @@ class SimplePR:
 class RunState:
     """Tracks the current run state for resumability."""
 
-    book_id: str
+    project_id: str
+    # Source kind ("book" or "paper", see manifest.SourceKind); controls wording only.
+    # Defaults to "book" so state files from before papers existed still load.
+    source_kind: str = SourceKind.BOOK.value
     chapters: dict[str, dict] = field(default_factory=dict)  # chapter_id -> chapter info
     prs: dict[str, SimplePR] = field(default_factory=dict)  # pr_id -> SimplePR
     completed_theorems: dict[str, list[str]] = field(default_factory=dict)  # chapter_id -> [theorem_names]
@@ -184,7 +202,8 @@ class RunState:
 
     def save(self, path: Path) -> None:
         data = {
-            "book_id": self.book_id,
+            "project_id": self.project_id,
+            "source_kind": self.source_kind,
             "chapters": self.chapters,
             "prs": {k: v.to_dict() for k, v in self.prs.items()},
             "completed_theorems": self.completed_theorems,
@@ -203,7 +222,9 @@ class RunState:
         if not content:
             raise ValueError(f"State file is empty: {path}")
         data = json.loads(content)
-        state = cls(book_id=data["book_id"])
+        # State files written before the book→project rename store "book_id".
+        state = cls(project_id=data.get("project_id", data.get("book_id", "")))
+        state.source_kind = data.get("source_kind", SourceKind.BOOK.value)
         state.chapters = data.get("chapters", {})
         state.prs = {k: SimplePR.from_dict(v) for k, v in data.get("prs", {}).items()}
         state.completed_theorems = data.get("completed_theorems", {})
@@ -216,24 +237,27 @@ class RunState:
 
 
 # =============================================================================
-# Book Coordinator
+# Coordinator
 # =============================================================================
 
 
-class BookCoordinator:
-    """Simple coordinator for book formalization.
+class Coordinator:
+    """Simple coordinator for formalizing a book or paper.
 
     Run loop:
-    1. For each chapter without a sketch: run sketcher → submit to review
+    1. For each unit without a sketch: run sketcher → submit to review
     2. Process review queue: review → (fail → rerun agent) → (success → merge)
     3. Process merge queue: merge to main
     4. After merge: scan for sorries → run provers → submit to review
     5. Repeat until done
     """
 
-    def __init__(self, config: BookCoordinatorConfig, skip_load: bool = False):
+    def __init__(self, config: CoordinatorConfig, skip_load: bool = False):
         self.config = config
         self.base_project = config.base_project
+
+        # Loaded manifest (set by load_manifest); may be None before that
+        self.manifest: Manifest | None = None
 
         # Validate that 'main' branch exists
         self._validate_main_branch()
@@ -241,11 +265,11 @@ class BookCoordinator:
         # Load or create state
         self.state_file = config.state_file or (config.base_project / ".repoprover" / "state.json")
         if skip_load:
-            self.state = RunState(book_id=config.book_id)
+            self.state = RunState(project_id=config.project_id)
         elif self.state_file.exists():
             self.state = RunState.load(self.state_file)
         else:
-            self.state = RunState(book_id=config.book_id)
+            self.state = RunState(project_id=config.project_id)
 
         # Worktree pool for agent isolation
         self.worktree_pool = WorktreePool(
@@ -613,18 +637,15 @@ class BookCoordinator:
         return created_issue_ids
 
     def _generate_initial_issues(self) -> None:
-        """Generate initial issues from manifest.
+        """Generate initial issues from the manifest.
 
         Creates issues/ folder with individual YAML files. Target theorem issues are added
-        later when each chapter's sketch is merged (see _add_target_theorem_issues).
+        later when each unit's sketch is merged (see _add_target_theorem_issues).
         """
-        manifest_path = self.base_project / "manifest.json"
-        if not manifest_path.exists():
-            logger.debug("No manifest.json found, skipping initial issue generation")
+        manifest = self._manifest_or_none()
+        if manifest is None:
+            logger.debug("No loadable manifest found, skipping initial issue generation")
             return
-
-        with open(manifest_path) as f:
-            manifest = json.load(f)
 
         issues_dir = self._get_issues_dir()
         issues_dir.mkdir(exist_ok=True)
@@ -637,21 +658,14 @@ class BookCoordinator:
         )
 
         issue_count = 0
-        for ch in manifest.get("chapters", []):
-            source_path = ch.get("source_path", ch.get("source", ""))
-            if source_path:
-                issue_id = secrets.token_hex(4)
-                issue_data = {
-                    "status": "open",
-                    "origin": "initial chapter sketch",
-                    "description": f"formalize `{source_path}` (TeX → Lean)",
-                }
-                issue_path = issues_dir / f"{issue_id}.yaml"
-                issue_path.write_text(yaml.safe_dump(issue_data, sort_keys=False, allow_unicode=True))
-                issue_count += 1
+        for issue_data in initial_sketch_issues(manifest):
+            issue_id = secrets.token_hex(4)
+            issue_path = issues_dir / f"{issue_id}.yaml"
+            issue_path.write_text(yaml.safe_dump(issue_data, sort_keys=False, allow_unicode=True))
+            issue_count += 1
 
         if issue_count == 0:
-            logger.debug("No chapters found in manifest")
+            logger.debug("No units with sources found in manifest")
             return
 
         # Commit to main
@@ -662,66 +676,29 @@ class BookCoordinator:
             timeout=30,
         )
         subprocess.run(
-            ["git", "commit", "-m", f"Add {issue_count} initial issues (sketch chapters)"],
+            ["git", "commit", "-m", f"Add {issue_count} initial issues (sketch {manifest.kind.unit_noun_plural})"],
             cwd=self.base_project,
             capture_output=True,
             timeout=30,
         )
 
         self.save_state()
-        logger.info(f"Generated {issue_count} initial issues (sketch chapters only)")
+        logger.info(f"Generated {issue_count} initial issues (sketch {manifest.kind.unit_noun_plural} only)")
 
     def _generate_contents_md(self) -> None:
-        """Generate initial CONTENTS.md from manifest.
+        """Generate initial CONTENTS.md from the manifest.
 
         Creates a table of contents mapping tex sources to Lean files.
         Agents are instructed to keep this file updated when they modify the repo structure.
         """
-        manifest_path = self.base_project / "manifest.json"
-        if not manifest_path.exists():
-            logger.debug("No manifest.json found, skipping CONTENTS.md generation")
+        manifest = self._manifest_or_none()
+        if manifest is None or not manifest.units:
+            logger.debug("No manifest units found, skipping CONTENTS.md generation")
             return
-
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-
-        chapters = manifest.get("chapters", [])
-        if not chapters:
-            logger.debug("No chapters found in manifest")
-            return
-
-        # Build the CONTENTS.md content
-        lines = [
-            "# Contents",
-            "",
-            "## TeX Sources",
-            "",
-            "| Chapter | Source | Lean Entry Point | Comments |",
-            "|---------|--------|------------------|----------|",
-        ]
-
-        for ch in chapters:
-            chapter_id = ch.get("id", "")
-            title = ch.get("title", chapter_id)
-            source_path = ch.get("source_path", ch.get("source", ""))
-            lines.append(f"| {title} | `{source_path}` | | |")
-
-        lines.extend(
-            [
-                "",
-                "---",
-                "",
-                "## Lean Codebase Overview",
-                "",
-                "*(Document the structure of the Lean codebase here as it evolves:",
-                "module hierarchy, shared utilities, naming conventions, etc.)*",
-                "",
-            ]
-        )
 
         contents_path = self.base_project / "CONTENTS.md"
-        contents_path.write_text("\n".join(lines))
-        logger.info(f"Generated CONTENTS.md with {len(chapters)} chapters")
+        contents_path.write_text(render_contents_md(manifest))
+        logger.info(f"Generated CONTENTS.md with {len(manifest.units)} {manifest.kind.unit_noun_plural}")
 
     def _run_git_with_retry(
         self,
@@ -1458,7 +1435,7 @@ class BookCoordinator:
                     and not self._triage_tasks
                     and not self._review_tasks
                 ):
-                    logger.info("All chapters complete!")
+                    logger.info("All %s complete!", self.source_kind.unit_noun_plural)
                     break
 
         except KeyboardInterrupt:
@@ -3509,10 +3486,11 @@ class BookCoordinator:
         merged = sum(1 for p in self.state.prs.values() if p.status == "merged")
 
         return {
-            "book_id": self.state.book_id,
+            "project_id": self.state.project_id,
             "title": self.config.title,
-            "total_chapters": len(self.state.chapters),
-            "chapters_with_sketch": sum(1 for c in self.state.chapters.values() if c.get("sketch_merged")),
+            "source_kind": self.state.source_kind,
+            "total_units": len(self.state.chapters),
+            "units_with_sketch": sum(1 for c in self.state.chapters.values() if c.get("sketch_merged")),
             "total_prs": total_prs,
             "pending_review": pending,
             "needs_revision": revisions,
@@ -3525,38 +3503,51 @@ class BookCoordinator:
     # Manifest Loading
     # =========================================================================
 
+    @property
+    def source_kind(self) -> SourceKind:
+        """The kind of source being formalized (book or paper)."""
+        try:
+            return SourceKind(self.state.source_kind)
+        except ValueError:
+            # Unknown kind in an old state file: fall back to book wording.
+            logger.warning("Unknown source_kind %r in state, assuming book", self.state.source_kind)
+            return SourceKind.BOOK
+
+    def _manifest_or_none(self) -> Manifest | None:
+        """The loaded manifest, or the one on disk if load_manifest was never called."""
+        if self.manifest is not None:
+            return self.manifest
+        path = find_manifest(self.base_project)
+        if path is None:
+            return None
+        try:
+            return load_manifest_file(path)
+        except Exception:
+            logger.debug("Manifest at %s failed to load", path)
+            return None
+
     def load_manifest(self, manifest_path: Path) -> int:
-        """Load chapters from manifest.
+        """Load units from the manifest into state (books: chapters, papers: sections).
 
-        Manifest format:
-        {
-            "chapters": [
-                {
-                    "id": "ch1",
-                    "title": "Introduction",
-                    "source_path": "tex/ch1.tex",
-                    "lean_path": "MyBook/Ch1.lean"
-                }
-            ]
-        }
+        The manifest is validated by repoprover.manifest; see docs/sources.md
+        for the format. Existing state per unit (e.g. sketch_merged) is
+        preserved so interrupted runs resume where they left off.
         """
-        with open(manifest_path) as f:
-            manifest = json.load(f)
+        manifest = load_manifest_file(manifest_path)
+        self.manifest = manifest
+        self.state.source_kind = manifest.kind.value
 
-        count = 0
-        for ch in manifest.get("chapters", []):
-            chapter_id = ch["id"]
+        for unit in manifest.units:
             # Merge with existing state to preserve sketch_merged status on resume
-            existing = self.state.chapters.get(chapter_id, {})
-            self.state.chapters[chapter_id] = {
-                "title": ch.get("title", chapter_id),
-                "source_path": ch.get("source_path", ch.get("source", "")),
-                "lean_path": ch.get("lean_path", ""),
-                "target_theorems": ch.get("target_theorems", []),
+            existing = self.state.chapters.get(unit.id, {})
+            self.state.chapters[unit.id] = {
+                "title": unit.title,
+                "source_path": unit.source_path,
+                "lean_path": unit.lean_path,
+                "target_theorems": unit.target_theorems,
                 "sketch_merged": existing.get("sketch_merged", False),  # Preserve on resume!
             }
-            count += 1
 
         self.save_state()
-        logger.info(f"Loaded {count} chapters from manifest")
-        return count
+        logger.info(f"Loaded {len(manifest.units)} {manifest.kind.unit_noun_plural} from manifest")
+        return len(manifest.units)
