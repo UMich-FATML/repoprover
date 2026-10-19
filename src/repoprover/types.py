@@ -121,10 +121,11 @@ class ReviewContext:
     branch_name: str
     agent_type: AgentType  # Type of agent that created this PR
     agent_id: str  # ID of the agent that created this PR
-    chapter_id: str
+    chapter_id: str  # ID of the manifest unit (book chapter or paper section) this PR belongs to
     title: str
     files_changed: list[str]
     source_content: str = ""  # LaTeX source for cross-checking
     description: str = ""  # PR description from contributor
     revision_number: int = 0  # Which revision this is (0 = initial)
     previous_review_feedback: str = ""  # Feedback from previous review (for revisions)
+    source_kind: str = "book"  # "book" or "paper" (manifest.SourceKind); tunes review wording

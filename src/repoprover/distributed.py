@@ -407,6 +407,7 @@ def contributor_task_to_dict(task: Any) -> dict:
         "issue_id": task.issue_id,
         "lean_path": task.lean_path,
         "source_tex_path": task.source_tex_path,
+        "source_kind": task.source_kind,
     }
 
 
@@ -430,6 +431,7 @@ def contributor_task_from_dict(d: dict) -> Any:
         issue_id=d.get("issue_id"),
         lean_path=d.get("lean_path", ""),
         source_tex_path=d.get("source_tex_path", ""),
+        source_kind=d.get("source_kind", "book"),  # default keeps old wire messages valid
     )
 
 

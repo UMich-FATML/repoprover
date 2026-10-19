@@ -1648,6 +1648,7 @@ class Coordinator:
                 chapter_id=chapter_id,
                 source_tex_path=source_path,
                 lean_path="",  # Sketcher will explore and decide
+                source_kind=self.state.source_kind,
             )
             task = self._dispatch_agent(
                 agent_type="sketch",
@@ -1922,7 +1923,7 @@ class Coordinator:
         # Launch triage agent (it will decide what to tick)
         self._triage_last_run = now
         agent_id = f"triage-{uuid.uuid4().hex[:6]}"
-        contrib_task = ContributorTask.triage()
+        contrib_task = ContributorTask.triage(source_kind=self.state.source_kind)
         task = self._dispatch_agent(
             agent_type="triage",
             task=contrib_task,
@@ -1973,7 +1974,7 @@ class Coordinator:
         self.state.active_scanners[scanner_id] = "running"
         self._scanner_last_run = now  # Update timestamp after launching
 
-        contrib_task = ContributorTask.scan()
+        contrib_task = ContributorTask.scan(source_kind=self.state.source_kind)
         task = self._dispatch_agent(
             agent_type="scan",
             task=contrib_task,
@@ -2023,7 +2024,7 @@ class Coordinator:
         self.state.active_progress[progress_id] = "running"
         self._progress_last_run = now  # Update timestamp after launching
 
-        contrib_task = ContributorTask.progress()
+        contrib_task = ContributorTask.progress(source_kind=self.state.source_kind)
         task = self._dispatch_agent(
             agent_type="progress",
             task=contrib_task,
@@ -2294,7 +2295,9 @@ class Coordinator:
 
         for issue_id in issues_to_assign:
             agent_id = f"maintain-{uuid.uuid4().hex[:8]}"
-            contrib_task = ContributorTask.maintain(issue_id=issue_id)  # Assign specific issue
+            contrib_task = ContributorTask.maintain(
+                issue_id=issue_id, source_kind=self.state.source_kind
+            )  # Assign specific issue
             task = self._dispatch_agent(
                 agent_type="maintain",
                 task=contrib_task,
@@ -2483,6 +2486,7 @@ class Coordinator:
                     chapter_id=pr.chapter_id,
                     source_tex_path=source_path,
                     lean_path="",  # Agent finds its work via CONTENTS.md or git status
+                    source_kind=self.state.source_kind,
                 )
             elif pr.agent_type == "prove":
                 chapter = self.state.chapters.get(pr.chapter_id, {})
@@ -2490,15 +2494,16 @@ class Coordinator:
                     chapter_id=pr.chapter_id,
                     theorem_name=pr.theorem_name or "",
                     lean_path="",  # Agent finds file via CONTENTS.md
+                    source_kind=self.state.source_kind,
                 )
             elif pr.agent_type == "triage":
-                contrib_task = ContributorTask.triage()
+                contrib_task = ContributorTask.triage(source_kind=self.state.source_kind)
             elif pr.agent_type == "scan":
-                contrib_task = ContributorTask.scan()
+                contrib_task = ContributorTask.scan(source_kind=self.state.source_kind)
             elif pr.agent_type == "maintain":
-                contrib_task = ContributorTask.maintain(issue_id=pr.issue_id)
+                contrib_task = ContributorTask.maintain(issue_id=pr.issue_id, source_kind=self.state.source_kind)
             elif pr.agent_type == "fix":
-                contrib_task = ContributorTask.fix()
+                contrib_task = ContributorTask.fix(source_kind=self.state.source_kind)
             else:
                 logger.error(f"Unknown agent type '{pr.agent_type}' for PR {pr.pr_id}, marking as failed")
                 pr.status = "failed"
@@ -2677,6 +2682,7 @@ class Coordinator:
                 description=pr.description,
                 revision_number=pr.revision_count,
                 previous_review_feedback=pr.last_review_feedback,
+                source_kind=self.state.source_kind,
             )
 
             result = review_pr(
@@ -3181,6 +3187,7 @@ class Coordinator:
                 chapter_id="",  # No longer tracking by chapter
                 theorem_name=theorem_name,
                 lean_path=lean_path,  # Pass the file path directly
+                source_kind=self.state.source_kind,
             )
             task = self._dispatch_agent(
                 agent_type="prove",

@@ -26,18 +26,16 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum
 from logging import getLogger
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ..lean_utils import has_sorry_or_axiom
+from ..manifest import SourceKind
 from .base import BaseAgent, dialog_to_text
 from .file_tools import FileToolsMixin
 from .git_worktree_tools import GitWorktreeToolsMixin
 from .lean_tools import LeanToolsMixin
 from .mathlib_tools import MathlibToolsMixin
 from .shell_tools import ShellToolsMixin
-
-if TYPE_CHECKING:
-    pass
 
 logger = getLogger(__name__)
 
@@ -69,19 +67,30 @@ class ContributorTask:
     issue_id: str | None = None  # UUID string (8-char hex)
     lean_path: str = ""  # Path to Lean file (relative to repo)
     source_tex_path: str = ""  # Path to source tex file
+    # "book" or "paper" (manifest.SourceKind): selects prompt wording and the
+    # paper-specific sketch guidance. Defaults to book for old wire messages.
+    source_kind: str = "book"
 
     @classmethod
-    def sketch(cls, chapter_id: str, source_tex_path: str = "", lean_path: str = "") -> ContributorTask:
+    def sketch(
+        cls, chapter_id: str, source_tex_path: str = "", lean_path: str = "", source_kind: str = "book"
+    ) -> ContributorTask:
         return cls(
             mode=ContributorMode.SKETCH,
             chapter_id=chapter_id,
             source_tex_path=source_tex_path,
             lean_path=lean_path,
+            source_kind=source_kind,
         )
 
     @classmethod
     def prove(
-        cls, chapter_id: str, theorem_name: str, lean_path: str = "", source_tex_path: str = ""
+        cls,
+        chapter_id: str,
+        theorem_name: str,
+        lean_path: str = "",
+        source_tex_path: str = "",
+        source_kind: str = "book",
     ) -> ContributorTask:
         return cls(
             mode=ContributorMode.PROVE,
@@ -89,27 +98,30 @@ class ContributorTask:
             theorem_name=theorem_name,
             lean_path=lean_path,
             source_tex_path=source_tex_path,
+            source_kind=source_kind,
         )
 
     @classmethod
-    def maintain(cls, issue_id: str | None = None, chapter_id: str | None = None) -> ContributorTask:
-        return cls(mode=ContributorMode.MAINTAIN, issue_id=issue_id, chapter_id=chapter_id)
+    def maintain(
+        cls, issue_id: str | None = None, chapter_id: str | None = None, source_kind: str = "book"
+    ) -> ContributorTask:
+        return cls(mode=ContributorMode.MAINTAIN, issue_id=issue_id, chapter_id=chapter_id, source_kind=source_kind)
 
     @classmethod
-    def scan(cls) -> ContributorTask:
-        return cls(mode=ContributorMode.SCAN)
+    def scan(cls, source_kind: str = "book") -> ContributorTask:
+        return cls(mode=ContributorMode.SCAN, source_kind=source_kind)
 
     @classmethod
-    def triage(cls) -> ContributorTask:
-        return cls(mode=ContributorMode.TRIAGE)
+    def triage(cls, source_kind: str = "book") -> ContributorTask:
+        return cls(mode=ContributorMode.TRIAGE, source_kind=source_kind)
 
     @classmethod
-    def fix(cls) -> ContributorTask:
-        return cls(mode=ContributorMode.FIX)
+    def fix(cls, source_kind: str = "book") -> ContributorTask:
+        return cls(mode=ContributorMode.FIX, source_kind=source_kind)
 
     @classmethod
-    def progress(cls) -> ContributorTask:
-        return cls(mode=ContributorMode.PROGRESS)
+    def progress(cls, source_kind: str = "book") -> ContributorTask:
+        return cls(mode=ContributorMode.PROGRESS, source_kind=source_kind)
 
 
 @dataclass
@@ -141,7 +153,7 @@ class ContributorResult:
 # Shared Base Prompt
 # =============================================================================
 
-CONTRIBUTOR_BASE_PROMPT = """You are a contributor to a Lean 4 book formalization project.
+CONTRIBUTOR_BASE_PROMPT = """You are a contributor to a Lean 4 {project_noun} formalization project.
 
 ## Project Overview
 
@@ -235,10 +247,10 @@ Issue #N: <title>
 
 SKETCH_MODE_PROMPT = """## Mode: SKETCH
 
-Your task is to create the initial Lean file structure for a chapter.
+Your task is to create the initial Lean file structure for a {unit_noun}.
 
 ### Input
-- Chapter ID: `{chapter_id}`
+- {unit_noun_cap} ID: `{chapter_id}`
 - Source tex: `{source_tex_path}`
 - Target Lean file: `{lean_path}`
 
@@ -311,19 +323,45 @@ Key formalizations: <list main theorems>
 ```
 """
 
+PAPER_SKETCH_GUIDANCE = r"""
+### Source-Specific Guidance: Papers
+
+This project formalizes a research paper, not a book. Papers differ from
+textbooks in ways that matter for sketching:
+
+- **Preamble and notation**: read `tex/preamble.tex` first — it holds the
+  macros, custom notation and `\newtheorem` environments. Reproduce the
+  paper's notation as Lean notation or local definitions where it carries
+  mathematical meaning.
+- **Main theorem placement**: papers usually state the main theorem in the
+  introduction and prove it much later. Place each theorem where it is
+  PROVED; for the introduction, either omit the statement or state it as a
+  clearly-marked restatement that refers to the proved version.
+- **Standing assumptions**: a section often says "throughout, assume G is
+  abelian". Make these hypotheses explicit (theorem parameters or a
+  `variable` block) — no hidden assumptions.
+- **Numbered equations**: when later proofs invoke an equation "(n)", give
+  that equation a named Lean lemma — do not inline it.
+- **Cited results**: results the paper quotes from the literature without
+  proof (a `\cite` reference with no proof in any `tex/` file) get
+  `sorry -- [cited]`. Results the paper itself proves — even well-known
+  ones — must NOT be `[cited]`.
+- **Appendices**: appendix sections are in scope like any other section.
+"""
+
 PROVE_MODE_PROMPT = """## Mode: PROVE
 
 Your task is to prove a specific theorem.
 
 ### Input
-- Chapter: `{chapter_id}`
+- {unit_noun_cap}: `{chapter_id}`
 - Theorem: `{theorem_name}`
 - Lean file: `{lean_path}`
 - Source tex: `{source_tex_path}` (for proof hints)
 
 ### Your Job
 
-1. Find the theorem in the chapter's Lean file
+1. Find the theorem in the {unit_noun}'s Lean file
 2. Understand what needs to be proved (read the statement, docstring, source tex)
 3. Develop the proof:
    - Use Mathlib tactics and lemmas
@@ -729,7 +767,7 @@ Your task is to assess progress toward proving target theorems and identify bloc
 
 ### Overall Goal
 
-The ultimate goal of this project is to **prove all target theorems** listed in `manifest.json`. Each chapter in the manifest has a `target_theorems` field listing the theorems that must be proved for that chapter to be considered complete.
+The ultimate goal of this project is to **prove all target theorems** listed in `manifest.json`. Each {unit_noun} in the manifest has a `target_theorems` field listing the theorems that must be proved for that {unit_noun} to be considered complete.
 
 ### Input
 - None (you check the manifest and codebase)
@@ -832,25 +870,49 @@ class ContributorAgent(
 
     def get_system_prompt(self) -> str:
         """Select system prompt based on mode."""
-        base = CONTRIBUTOR_BASE_PROMPT
+        nouns = self._source_nouns()
+        base = CONTRIBUTOR_BASE_PROMPT.format(project_noun=nouns.project_noun)
         mode_specific = self._get_mode_prompt()
         learnings_context = self.learnings.to_prompt_context()
         return base + "\n\n" + mode_specific + f"\n\n## Learnings from Previous Work\n\n{learnings_context}"
 
+    def _source_kind(self) -> SourceKind:
+        """The task's source kind, falling back to book on unknown values."""
+        try:
+            return SourceKind(self.task.source_kind)
+        except ValueError:
+            logger.warning("Unknown source_kind %r on task, using book wording", self.task.source_kind)
+            return SourceKind.BOOK
+
+    def _source_nouns(self) -> SourceKind:
+        """Alias of _source_kind; reads better where only the nouns are used."""
+        return self._source_kind()
+
     def _get_mode_prompt(self) -> str:
         """Get the mode-specific prompt with task parameters filled in."""
+        kind = self._source_kind()
+        nouns = {
+            "unit_noun": kind.unit_noun,
+            "unit_noun_cap": kind.unit_noun.capitalize(),
+            "unit_noun_plural": kind.unit_noun_plural,
+        }
         if self.task.mode == ContributorMode.SKETCH:
-            return SKETCH_MODE_PROMPT.format(
+            prompt = SKETCH_MODE_PROMPT.format(
                 chapter_id=self.task.chapter_id or "",
                 source_tex_path=self.task.source_tex_path or "",
                 lean_path=self.task.lean_path or "",
+                **nouns,
             )
+            if kind is SourceKind.PAPER:
+                prompt += "\n" + PAPER_SKETCH_GUIDANCE
+            return prompt
         elif self.task.mode == ContributorMode.PROVE:
             return PROVE_MODE_PROMPT.format(
                 chapter_id=self.task.chapter_id or "",
                 theorem_name=self.task.theorem_name or "",
                 lean_path=self.task.lean_path or "",
                 source_tex_path=self.task.source_tex_path or "",
+                **nouns,
             )
         elif self.task.mode == ContributorMode.MAINTAIN:
             issue_str = str(self.task.issue_id) if self.task.issue_id else "none"
@@ -860,7 +922,7 @@ class ContributorAgent(
         elif self.task.mode == ContributorMode.TRIAGE:
             return TRIAGE_MODE_PROMPT
         elif self.task.mode == ContributorMode.PROGRESS:
-            return PROGRESS_MODE_PROMPT
+            return PROGRESS_MODE_PROMPT.format(**nouns)
         else:
             return ""
 
@@ -914,7 +976,7 @@ class ContributorAgent(
 
         parts = []
 
-        parts.append("## Chapter")
+        parts.append(f"## {self._source_nouns().unit_noun_cap}")
         parts.append(f"- Source (tex): `{self.task.source_tex_path}`")
         parts.append("")
 
@@ -960,7 +1022,9 @@ class ContributorAgent(
             parts.append("Review and fix your existing work rather than starting over.")
             parts.append("")
             parts.append("Update the Lean file to address the feedback/escalation.\n")
-            parts.append("1. Check `CONTENTS.md` to find which Lean file(s) cover this chapter")
+            parts.append(
+                f"1. Check `CONTENTS.md` to find which Lean file(s) cover this {self._source_nouns().unit_noun}"
+            )
             parts.append('2. Use `file_grep(path="<lean_file>", pattern="...")` to find relevant code')
             parts.append("3. Use `file_read` with offset/limit to see exact context")
             parts.append("4. Use `file_edit` or `file_edit_lines` for minimal changes")
@@ -978,7 +1042,7 @@ class ContributorAgent(
 
         parts.append("## Target")
         parts.append(f"Prove theorem: `{self.task.theorem_name}`")
-        parts.append(f"- Chapter: `{self.task.chapter_id}`")
+        parts.append(f"- {self._source_nouns().unit_noun_cap}: `{self.task.chapter_id}`")
         if self.task.source_tex_path:
             parts.append(f"- Source tex: `{self.task.source_tex_path}` (for proof hints)")
         parts.append("")
@@ -998,8 +1062,8 @@ class ContributorAgent(
 
         parts.append("## Instructions")
         parts.append(
-            "1. Read `CONTENTS.md` for proof architecture, status, strategy notes, and chapter structure\n"
-            "2. Check `CONTENTS.md` to find the Lean file(s) for this chapter\n"
+            "1. Read `CONTENTS.md` for proof architecture, status, strategy notes, and unit structure\n"
+            f"2. Check `CONTENTS.md` to find the Lean file(s) for this {self._source_nouns().unit_noun}\n"
             f'3. Find `{self.task.theorem_name}` with `file_grep(path="<lean_file>", pattern="{self.task.theorem_name}")`\n'
             "4. Study available lemmas that appear BEFORE your target\n"
             "5. Check the source tex for proof strategy if available\n"

@@ -287,6 +287,18 @@ REQUEST_CHANGES for: wrong statements, missing theorems, `[cited]`/`[exercise]` 
 - **warning**: Should fix (suboptimal types, missing API lemmas, naming issues)
 - **suggestion**: Nice to have (style improvements, documentation)
 """
+        if pr.agent_type.value == "sketch" and pr.source_kind == "paper":
+            base += """
+### Source-Specific Checks: Papers
+
+This project formalizes a research paper. Check the paper rules in addition to the list above:
+
+- **Main theorem placement**: theorems must appear where the paper PROVES them, not where the introduction states them; introduction restatements must clearly reference the proved version
+- **Standing assumptions**: section-wide assumptions ("throughout, assume...") must be explicit hypotheses or a `variable` block — flag hidden assumptions as **critical**
+- **Numbered equations**: equations invoked by later proofs ("by (3.2)...") need named Lean lemmas
+- **Cited results**: `sorry -- [cited]` is valid only when no tex file in `tex/` proves the result; results the paper itself proves must NOT be `[cited]` — flag misuse as **critical**
+- **Preamble notation**: custom notation from `tex/preamble.tex` should be reflected where it carries meaning
+"""
         elif pr.agent_type.value == "fix":
             base += """This PR is from a PROVER agent proposing a FIX to the codebase.
 

@@ -62,6 +62,11 @@ class SourceKind(StrEnum):
         return "chapter" if self is SourceKind.BOOK else "section"
 
     @property
+    def unit_noun_cap(self) -> str:
+        """ "Chapter" or "Section" - for prompt and table headings."""
+        return self.unit_noun.capitalize()
+
+    @property
     def unit_noun_plural(self) -> str:
         """ "chapters" or "sections"."""
         return "chapters" if self is SourceKind.BOOK else "sections"
