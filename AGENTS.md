@@ -20,6 +20,8 @@ merge queue keeps `main` building).
   `base.py`, mixins `*_tools.py`
 - `src/repoprover/distributed.py` — ZMQ task queue for multi-node runs;
   `stool.py` — SLURM launcher
+- `src/repoprover/merge_resolve.py` — unions import-only merge conflicts
+  (root-module import lists) so they don't bounce PRs back to agents
 - `src/repoprover/types.py`, `recording.py`, `lean_checker.py`,
   `git_worktree.py` — shared types, run recording, Lean REPL, worktrees
 - `docs/` — system of record (see below); `examples/` — toy book + toy paper

@@ -62,6 +62,7 @@ from .manifest import (
 from .manifest import (
     load_manifest as load_manifest_file,
 )
+from .merge_resolve import auto_resolve_merge
 from .recording import SessionRecorder, create_session_recorder, read_agent_dialog
 from .types import AgentType, ReviewContext
 from .utils import timed, timed_run
@@ -2504,6 +2505,8 @@ class Coordinator:
                 contrib_task = ContributorTask.maintain(issue_id=pr.issue_id, source_kind=self.state.source_kind)
             elif pr.agent_type == "fix":
                 contrib_task = ContributorTask.fix(source_kind=self.state.source_kind)
+            elif pr.agent_type == "progress":
+                contrib_task = ContributorTask.progress(source_kind=self.state.source_kind)
             else:
                 logger.error(f"Unknown agent type '{pr.agent_type}' for PR {pr.pr_id}, marking as failed")
                 pr.status = "failed"
@@ -2968,6 +2971,11 @@ class Coordinator:
             conflict_files = [f for f in conflicts_result.stdout.strip().split("\n") if f]
             logger.info(f"Pre-review merge: {worktree_path.name} conflicts in: {conflict_files}")
 
+            # Root-module import lists conflict on nearly every pair of sketches; union them.
+            conflict_files = auto_resolve_merge(worktree_path, conflict_files)
+            if not conflict_files:
+                return True, []
+
             # Abort the failed merge to leave worktree clean
             subprocess.run(
                 ["git", "merge", "--abort"],
@@ -3046,13 +3054,16 @@ class Coordinator:
                     cwd=self.base_project,
                 )
                 conflict_files = [f for f in conflicts_result.stdout.strip().split("\n") if f]
+                conflict_files = auto_resolve_merge(self.base_project, conflict_files)
 
-                # Abort failed merge
-                timed_run(["git", "merge", "--abort"], cwd=self.base_project)
-                details["failure_reason"] = "merge_conflict"
-                # Git may write conflict info to stdout or stderr; capture both
-                merge_error = result.stderr.strip() or result.stdout.strip() or "merge failed"
-                return False, merge_error, conflict_files, details
+                if conflict_files:
+                    # Abort failed merge
+                    timed_run(["git", "merge", "--abort"], cwd=self.base_project)
+                    details["failure_reason"] = "merge_conflict"
+                    # Git may write conflict info to stdout or stderr; capture both
+                    merge_error = result.stderr.strip() or result.stdout.strip() or "merge failed"
+                    return False, merge_error, conflict_files, details
+                # else: import-only conflicts resolved and committed; the build check below still gates it
 
             # Verify build using centralized build function with semaphore
             build_result = lake_build(self.base_project, label=f"merge:{branch_name[:20]}")
