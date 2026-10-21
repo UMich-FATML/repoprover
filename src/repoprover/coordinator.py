@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import queue
 import random
 import secrets
@@ -217,7 +218,18 @@ class RunState:
             "active_progress": self.active_progress,
         }
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2))
+        # Write-then-rename: write_text truncates first, so a full disk mid-write
+        # used to leave a 0-byte state.json and an unresumable run.
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            with open(tmp, "w") as f:
+                f.write(json.dumps(data, indent=2))
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
     @classmethod
     def load(cls, path: Path) -> RunState:
@@ -3497,8 +3509,17 @@ class Coordinator:
 
     @timed()
     def save_state(self) -> None:
-        """Save current state for resumability."""
-        self.state.save(self.state_file)
+        """Save current state for resumability.
+
+        A failed save (e.g. a briefly full filesystem) is logged and retried on
+        the next save: the previous state file is intact (see RunState.save),
+        and crashing here used to drain and end the whole run.
+        """
+        try:
+            self.state.save(self.state_file)
+        except OSError as e:
+            logger.error(f"Could not save state to {self.state_file}: {e}; keeping the previous file, will retry")
+            return
         # Log state file size
         if self.state_file.exists():
             size_kb = self.state_file.stat().st_size / 1024

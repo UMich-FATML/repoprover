@@ -59,3 +59,26 @@ class TestRunStateCompat:
             raise AssertionError("expected ValueError")
         except ValueError as e:
             assert "empty" in str(e)
+
+
+class TestRunStateAtomicSave:
+    def test_failed_save_keeps_previous_file(self, tmp_path: Path, monkeypatch) -> None:
+        """A full disk mid-save used to leave a 0-byte state.json (seen in the book runs)."""
+        path = tmp_path / "state.json"
+        RunState(project_id="book").save(path)
+        before = path.read_text()
+
+        import repoprover.coordinator as coord
+
+        def boom(*args, **kwargs):
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(coord.os, "fsync", boom)
+        state = RunState(project_id="book")
+        state.next_issue_id = 99
+        try:
+            state.save(path)
+        except OSError:
+            pass
+        assert path.read_text() == before
+        assert not (tmp_path / "state.json.tmp").exists()
