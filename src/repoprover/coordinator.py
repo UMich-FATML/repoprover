@@ -72,6 +72,15 @@ from .utils import timed, timed_run
 
 logger = getLogger(__name__)
 
+# A failing main-loop iteration is retried with backoff; this many failures in a
+# row (about 1.5 h at the 300 s cap) means the problem is not transient.
+LOOP_MAX_CONSECUTIVE_ERRORS = 20
+
+
+def loop_retry_delay(consecutive_errors: int) -> float:
+    """Backoff before retrying a failed main-loop iteration: 10 s, 20 s, 40 s, ... capped at 300 s."""
+    return float(min(300, 10 * 2 ** (consecutive_errors - 1)))
+
 
 # =============================================================================
 # Lean parsing helpers
@@ -204,12 +213,12 @@ class RunState:
     max_concurrent_progress: int = 1  # How many progress agents can run at once
     active_progress: dict[str, str] = field(default_factory=dict)  # progress_id -> status
 
-    def save(self, path: Path) -> None:
+    def _serialize(self) -> str:
         data = {
             "project_id": self.project_id,
             "source_kind": self.source_kind,
             "chapters": self.chapters,
-            "prs": {k: v.to_dict() for k, v in self.prs.items()},
+            "prs": {k: v.to_dict() for k, v in list(self.prs.items())},
             "completed_theorems": self.completed_theorems,
             "next_issue_id": self.next_issue_id,
             "max_concurrent_scanners": self.max_concurrent_scanners,
@@ -217,13 +226,26 @@ class RunState:
             "max_concurrent_progress": self.max_concurrent_progress,
             "active_progress": self.active_progress,
         }
+        return json.dumps(data, indent=2)
+
+    def save(self, path: Path) -> None:
+        # Review threads (asyncio.to_thread) mutate these dicts while the loop saves;
+        # a "dictionary changed size during iteration" just means retry the snapshot.
+        for attempt in range(5):
+            try:
+                text = self._serialize()
+                break
+            except RuntimeError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.05)
         path.parent.mkdir(parents=True, exist_ok=True)
         # Write-then-rename: write_text truncates first, so a full disk mid-write
         # used to leave a 0-byte state.json and an unresumable run.
         tmp = path.with_name(path.name + ".tmp")
         try:
             with open(tmp, "w") as f:
-                f.write(json.dumps(data, indent=2))
+                f.write(text)
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp, path)
@@ -1408,48 +1430,30 @@ class Coordinator:
             self._launch_progress_agents,
         ]
 
+        consecutive_errors = 0
         try:
             while self._running:
                 loop_count += 1
-                progress = False
-                for step in steps:
-                    if await step():
-                        progress = True
-
-                # Log periodic status summary
-                if loop_count % status_interval == 0:
-                    self._log_status_summary()
-
-                if not progress:
-                    # Wait for something to complete before checking steps again
-                    all_tasks = (
-                        set(self._agent_tasks)
-                        | set(self._maintain_tasks)
-                        | set(self._scanner_tasks)
-                        | set(self._progress_tasks)
-                        | set(self._triage_tasks)
-                        | set(self._review_tasks)
+                try:
+                    done = await self._loop_iteration(steps, loop_count, status_interval, poll_interval)
+                except Exception as e:
+                    # One failed iteration (a briefly full filesystem, a gateway restart, a
+                    # racing state dict) used to crash the coordinator, which then drained
+                    # for hours and exited. Retry with backoff; only a persistent failure
+                    # falls through to the crash handler below.
+                    consecutive_errors += 1
+                    if consecutive_errors > LOOP_MAX_CONSECUTIVE_ERRORS:
+                        raise
+                    delay = loop_retry_delay(consecutive_errors)
+                    logger.exception(
+                        f"Coordinator loop error ({consecutive_errors}/{LOOP_MAX_CONSECUTIVE_ERRORS}): {e}; "
+                        f"retrying in {delay:.0f}s"
                     )
-                    if all_tasks:
-                        await asyncio.wait(
-                            all_tasks,
-                            timeout=poll_interval,
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
-                    else:
-                        await asyncio.sleep(poll_interval)
-
-                self.save_state()
-
-                if (
-                    self._is_complete()
-                    and not self._agent_tasks
-                    and not self._maintain_tasks
-                    and not self._scanner_tasks
-                    and not self._progress_tasks
-                    and not self._triage_tasks
-                    and not self._review_tasks
-                ):
+                    self._recover_base_checkout()
+                    await asyncio.sleep(delay)
+                    continue
+                consecutive_errors = 0
+                if done:
                     logger.info("All %s complete!", self.source_kind.unit_noun_plural)
                     break
 
@@ -1530,6 +1534,67 @@ class Coordinator:
             | self._review_tasks
         ):
             task.cancel()
+
+    async def _loop_iteration(self, steps: list, loop_count: int, status_interval: int, poll_interval: float) -> bool:
+        """Run one pass of the main loop; return True when the project is complete."""
+        progress = False
+        for step in steps:
+            if await step():
+                progress = True
+
+        # Log periodic status summary
+        if loop_count % status_interval == 0:
+            self._log_status_summary()
+
+        if not progress:
+            # Wait for something to complete before checking steps again
+            all_tasks = (
+                set(self._agent_tasks)
+                | set(self._maintain_tasks)
+                | set(self._scanner_tasks)
+                | set(self._progress_tasks)
+                | set(self._triage_tasks)
+                | set(self._review_tasks)
+            )
+            if all_tasks:
+                await asyncio.wait(
+                    all_tasks,
+                    timeout=poll_interval,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+            else:
+                await asyncio.sleep(poll_interval)
+
+        self.save_state()
+
+        return (
+            self._is_complete()
+            and not self._agent_tasks
+            and not self._maintain_tasks
+            and not self._scanner_tasks
+            and not self._progress_tasks
+            and not self._triage_tasks
+            and not self._review_tasks
+        )
+
+    def _recover_base_checkout(self) -> None:
+        """After a failed iteration, leave the base project on a clean `main`.
+
+        A merge interrupted by an I/O error leaves MERGE_HEAD behind, and every
+        later merge's `git checkout main` would then fail too.
+        """
+        try:
+            if (self.base_project / ".git" / "MERGE_HEAD").exists():
+                logger.warning("Aborting an interrupted merge in the base project")
+                subprocess.run(["git", "merge", "--abort"], cwd=self.base_project, capture_output=True, timeout=60)
+            branch = subprocess.run(
+                ["git", "branch", "--show-current"], cwd=self.base_project, capture_output=True, text=True, timeout=30
+            ).stdout.strip()
+            if branch and branch != "main":
+                logger.warning(f"Base project is on {branch!r}; checking out main")
+                subprocess.run(["git", "checkout", "main"], cwd=self.base_project, capture_output=True, timeout=60)
+        except Exception as e:  # recovery is best effort; the next iteration retries anyway
+            logger.warning(f"Base checkout recovery failed: {e}")
 
     async def _drain_and_exit(self) -> None:
         """Drain all running tasks gracefully before exiting.
