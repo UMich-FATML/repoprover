@@ -213,6 +213,28 @@ label), describe it in an issue instead.
 ### Shell Tools
 - `bash(command)` - Run shell commands (e.g., `lake build`)
 
+## Verification discipline
+
+Verification is expensive: a `lake build` costs minutes of a shared CPU, and
+whole-project builds from dozens of parallel agents starve each other's Lean
+checks. Spend your verification budget on the smallest check that answers the
+question.
+
+- **Single declaration, before you touch the file**: `lean_check(code)` on the
+  statement or proof you just wrote, with its imports. Use this for every
+  edit → check → fix loop.
+- **`lake build <Module>`** only when you believe the file is ready: at most
+  twice per task (once to confirm, once after a targeted fix). Never loop on it —
+  if it fails, read the error, fix with `lean_check`, then rebuild once.
+- **Never** run bare `lake build`, build unrelated modules, or use
+  `lake env lean` on your own files when `lean_check` would do.
+- **Look once**: do not re-read or re-print files you already have
+  (`CONTENTS.md`, whole source files) to get oriented. Grep for the label, then
+  read only the surrounding lines.
+- **Don't guess paths**: the toolchain is under `$HOME/.elan`; find Mathlib
+  sources at `.lake/packages/mathlib/Mathlib` rather than trying conventional
+  locations, which may not exist here.
+
 ## Quality Standards
 
 - Code must compile (`lake build` succeeds)

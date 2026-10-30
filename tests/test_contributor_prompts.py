@@ -205,3 +205,24 @@ class TestReviewContext:
             files_changed=[],
         )
         assert ctx.source_kind == "book"
+
+
+class TestVerificationDiscipline:
+    """Agents ran ~12.6k whole-project `lake build`s in 11 h across the book runs,
+    starving each other's Lean checks (see docs/design.md, 2026-10-30)."""
+
+    @pytest.mark.parametrize(
+        "task",
+        [
+            ContributorTask.sketch("ch1", source_tex_path="tex/ch1.tex"),
+            ContributorTask.prove("ch1", "thm:main"),
+            ContributorTask.maintain(issue_id="abcd1234"),
+            ContributorTask.progress(),
+        ],
+        ids=["sketch", "prove", "maintain", "progress"],
+    )
+    def test_rule_is_in_every_write_mode_prompt(self, task) -> None:
+        prompt = make_agent(task).get_system_prompt()
+        assert "## Verification discipline" in prompt
+        assert "at most\n  twice per task" in prompt
+        assert "Never** run bare `lake build`" in prompt
